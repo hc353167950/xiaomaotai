@@ -82,13 +82,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 通知权限设置项
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
             Column(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(12.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -129,20 +129,145 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 
                 // 提示文字
                 Text(
                     text = "提示：关闭通知权限后将无法接收纪念日提醒",
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
         }
         
-
+        Spacer(modifier = Modifier.height(12.dp))
         
-        Spacer(modifier = Modifier.height(20.dp))
+        // 精确闹钟权限设置项
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val intent = permissionManager.getExactAlarmSettingsIntent()
+                            context.startActivity(intent)
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "精确闹钟权限",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "确保APP被杀死后仍能准时提醒（在特殊权限中设置）",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                    
+                    Switch(
+                        checked = permissionSummary.hasExactAlarm,
+                        onCheckedChange = { 
+                            val intent = permissionManager.getExactAlarmSettingsIntent()
+                            context.startActivity(intent)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // 提示文字
+                Text(
+                    text = if (permissionSummary.hasExactAlarm) {
+                        "✅ 已开启，提醒功能正常工作"
+                    } else {
+                        "⚠️ 未开启，可能影响提醒准确性\n设置路径：系统设置 → 应用 → 特殊应用访问权限 → 闹钟和提醒"
+                    },
+                    fontSize = 11.sp,
+                    color = if (permissionSummary.hasExactAlarm) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 14.sp
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // 测试通知功能
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Text(
+                    text = "测试通知",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                
+                Text(
+                    text = "点击下方按钮测试通知功能是否正常工作",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                )
+                
+                Button(
+                    onClick = {
+                        val reminderManager = ReminderManager(context)
+                        reminderManager.sendTestNotification()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "发送测试通知（5秒后）",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                Text(
+                    text = "如果5秒后没有收到通知，请检查通知权限和精确闹钟权限",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
         
         // 提醒时间说明 - 简约设计
         Card(
@@ -150,17 +275,17 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
             Column(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(12.dp)
             ) {
                 Text(
                     text = "提醒时间",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
                 
                 // 简洁的提醒时间列表
@@ -190,12 +315,12 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 
                 // 特殊说明
                 Text(
-                    text = "当天添加的纪念日会在1分钟后立即提醒",
-                    fontSize = 12.sp,
+                    text = "当天添加的纪念日会在30秒后立即提醒",
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )

@@ -24,9 +24,11 @@ class ReminderManager(private val context: Context) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    private val sharedPreferences = context.getSharedPreferences("reminder_history", Context.MODE_PRIVATE)
 
     init {
         createNotificationChannel()
+        cleanupOldReminderHistory()
     }
 
     private fun createNotificationChannel() {
@@ -48,7 +50,14 @@ class ReminderManager(private val context: Context) {
      */
     fun scheduleReminder(event: Event) {
         try {
-            // 精确闹钟权限默认开启，直接设置提醒
+            // 检查权限
+            if (!canScheduleAlarms()) {
+                Log.w("ReminderManager", "没有精确闹钟权限，无法设置提醒: ${event.eventName}")
+                return
+            }
+            
+            // 确保通知渠道存在
+            createNotificationChannel()
             
             // 解析事件日期，获取下次提醒时间
             val nextReminderDate = getNextReminderDate(event.eventDate)
@@ -74,10 +83,19 @@ class ReminderManager(private val context: Context) {
                 val reminderCalendar = eventCalendar.clone() as Calendar
                 reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
                 
+                // 检查今天是否已经发送过这个提醒
+                if (daysBefore == 0 && hasReminderSentToday(event.id, daysBefore)) {
+                    Log.d("ReminderManager", "当天提醒已发送过，跳过: ${event.eventName}")
+                    return@forEachIndexed
+                }
+                
                 // 特殊处理当天事件：如果是当天且时间已过，立即触发通知
-                if (daysBefore == 0 && isSameDay(reminderCalendar, now) && reminderCalendar.timeInMillis <= now.timeInMillis) {
-                    // 设置为1分钟后提醒（立即提醒）
-                    reminderCalendar.timeInMillis = now.timeInMillis + 1 * 60 * 1000
+                if (daysBefore == 0 && isSameDay(reminderCalendar, now)) {
+                    if (reminderCalendar.timeInMillis <= now.timeInMillis) {
+                        // 设置为30秒后提醒（立即提醒）
+                        reminderCalendar.timeInMillis = now.timeInMillis + 30 * 1000
+                        Log.d("ReminderManager", "当天事件时间已过，设置立即提醒: ${event.eventName}")
+                    }
                 }
                 
                 // 设置未来的提醒或当天的立即提醒
@@ -132,31 +150,38 @@ class ReminderManager(private val context: Context) {
      */
     fun cancelReminder(eventId: String) {
         try {
-            val reminderDays = listOf(7, 1, 0) // 7天前、1天前、当天
-            
+            val reminderDays = listOf(7, 1, 0)
             reminderDays.forEach { daysBefore ->
                 val intent = Intent(context, ReminderReceiver::class.java).apply {
                     action = "com.example.xiaomaotai.REMINDER"
                 }
                 
-                // 使用与设置提醒时相同的ID生成方式
                 val pendingIntent = PendingIntent.getBroadcast(
                     context,
                     "${eventId}_$daysBefore".hashCode(),
                     intent,
-                    PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 
-                if (pendingIntent != null) {
-                    alarmManager.cancel(pendingIntent)
-                    pendingIntent.cancel()
-                    Log.d("ReminderManager", "已取消${daysBefore}天前提醒: $eventId")
-                }
+                alarmManager.cancel(pendingIntent)
+                Log.d("ReminderManager", "已取消事件提醒: $eventId (提前${daysBefore}天)")
             }
-            
-            Log.d("ReminderManager", "已取消事件所有提醒: $eventId")
         } catch (e: Exception) {
-            Log.e("ReminderManager", "取消提醒失败: ${e.message}")
+            Log.e("ReminderManager", "取消提醒失败: $eventId, ${e.message}")
+        }
+    }
+    
+    /**
+     * 安全设置提醒 - 先取消现有提醒再设置新的，避免重复
+     */
+    fun safeScheduleReminder(event: Event) {
+        try {
+            // 先取消现有的提醒
+            cancelReminder(event.id)
+            // 再设置新的提醒
+            scheduleReminder(event)
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "安全设置提醒失败: ${event.eventName}, ${e.message}")
         }
     }
     
@@ -306,6 +331,109 @@ class ReminderManager(private val context: Context) {
             alarmManager.canScheduleExactAlarms()
         } else {
             true // Android 12以下版本默认有权限
+        }
+    }
+    
+    /**
+     * 检查今天是否已经为某个事件的特定提醒类型发送过通知
+     */
+    private fun hasReminderSentToday(eventId: String, daysRemaining: Int): Boolean {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val reminderKey = "${eventId}_${daysRemaining}_$today"
+        return sharedPreferences.getBoolean(reminderKey, false)
+    }
+    
+    /**
+     * 记录今天已经为某个事件的特定提醒类型发送过通知
+     */
+    fun markReminderSentToday(eventId: String, daysRemaining: Int) {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val reminderKey = "${eventId}_${daysRemaining}_$today"
+        sharedPreferences.edit().putBoolean(reminderKey, true).apply()
+        Log.d("ReminderManager", "标记提醒已发送: $reminderKey")
+    }
+    
+    /**
+     * 清理过期的提醒历史记录（保留最近7天的记录）
+     */
+    private fun cleanupOldReminderHistory() {
+        try {
+            val sevenDaysAgo = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, -7)
+            }
+            val cutoffDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(sevenDaysAgo.time)
+            
+            val editor = sharedPreferences.edit()
+            val allKeys = sharedPreferences.all.keys
+            var removedCount = 0
+            
+            allKeys.forEach { key ->
+                if (key.contains("_") && key.split("_").size >= 3) {
+                    val datePart = key.split("_").last()
+                    if (datePart < cutoffDate) {
+                        editor.remove(key)
+                        removedCount++
+                    }
+                }
+            }
+            
+            if (removedCount > 0) {
+                editor.apply()
+                Log.d("ReminderManager", "清理了${removedCount}条过期提醒历史记录")
+            }
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "清理提醒历史记录失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 测试通知功能 - 立即发送一个测试通知
+     */
+    fun sendTestNotification() {
+        try {
+            // 确保通知渠道存在
+            createNotificationChannel()
+            
+            val testIntent = Intent(context, ReminderReceiver::class.java).apply {
+                action = "com.example.xiaomaotai.REMINDER"
+                putExtra("event_id", "test_notification")
+                putExtra("event_name", "测试通知")
+                putExtra("event_date", "test")
+                putExtra("days_remaining", 0)
+                putExtra("reminder_label", "测试")
+            }
+            
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                "test_notification".hashCode(),
+                testIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            // 设置5秒后触发测试通知
+            val testTime = System.currentTimeMillis() + 5000
+            
+            if (canScheduleAlarms()) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        testTime,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        testTime,
+                        pendingIntent
+                    )
+                }
+                Log.d("ReminderManager", "测试通知已设置，5秒后触发")
+            } else {
+                Log.w("ReminderManager", "没有精确闹钟权限，无法发送测试通知")
+            }
+            
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "发送测试通知失败: ${e.message}")
         }
     }
 

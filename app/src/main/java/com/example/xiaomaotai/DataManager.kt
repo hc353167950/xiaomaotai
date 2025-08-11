@@ -44,6 +44,17 @@ class DataManager(private val context: Context) {
                 localEvents = result.getOrNull() ?: emptyList()
                 Log.d(TAG, "Successfully loaded ${localEvents.size} events.")
                 saveEventsLocally(localEvents)
+                
+                // 为所有加载的事件设置提醒
+                localEvents.forEach { event ->
+                    try {
+                        reminderManager.safeScheduleReminder(event)
+                        Log.d(TAG, "设置提醒成功: ${event.eventName}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "设置提醒失败: ${event.eventName}, ${e.message}")
+                    }
+                }
+                Log.d(TAG, "已为${localEvents.size}个事件设置提醒")
             } else {
                 Log.e(TAG, "Failed to get events: ${result.exceptionOrNull()?.message}")
             }
@@ -290,9 +301,23 @@ class DataManager(private val context: Context) {
         Log.d(TAG, "Initializing local data.")
         localEvents = loadEventsLocally()
         offlineEvents = loadOfflineEventsLocally()
+        
+        // 为本地缓存的离线事件设置提醒
+        offlineEvents.forEach { event ->
+            try {
+                reminderManager.safeScheduleReminder(event)
+                Log.d(TAG, "为离线事件设置提醒成功: ${event.eventName}")
+            } catch (e: Exception) {
+                Log.e(TAG, "为离线事件设置提醒失败: ${event.eventName}, ${e.message}")
+            }
+        }
+        
         getCurrentUser()?.let {
             Log.d(TAG, "User is logged in. Refreshing data from network.")
             loadUserData(it.id)
+        } ?: run {
+            // 如果未登录，为本地缓存的离线事件设置提醒
+            Log.d(TAG, "User not logged in. 已为${offlineEvents.size}个离线事件设置提醒")
         }
     }
 

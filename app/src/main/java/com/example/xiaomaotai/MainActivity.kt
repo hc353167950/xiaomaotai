@@ -146,7 +146,14 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun showExactAlarmPermissionDialog() {
-        // 这个方法将在MainApp中实现，通过状态管理显示对话框
+        // 直接跳转到设置页面请求精确闹钟权限
+        val permissionManager = PermissionManager(this)
+        try {
+            val intent = permissionManager.getExactAlarmSettingsIntent()
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("Permission", "无法打开精确闹钟设置页面: ${e.message}")
+        }
     }
 }
 
