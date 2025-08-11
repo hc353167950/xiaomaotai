@@ -1,0 +1,58 @@
+# Android Studio / IntelliJ IDEA
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+
+# Build outputs
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+
+# Gradle
+/.gradle/
+/gradle/wrapper/gradle-wrapper.jar
+
+# Local configuration files
+local.properties
+gradle.properties
+
+# Signing keys (IMPORTANT: Keep private!)
+*.jks
+*.keystore
+app/xiaomaotai-release-key.jks
+
+# Generated APKs
+*.apk
+*.aab
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.svg
+*.png
+temp_*
+processed_*
+
+# Python scripts (development tools)
+*.py
+__pycache__/
+*.pyc
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Kotlin
+.kotlin/
