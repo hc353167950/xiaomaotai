@@ -322,9 +322,11 @@ class NetworkDataManager {
                 )
 
                 Log.d("NetworkDataManager", "准备更新数据库: $updateData")
-                // 由于Supabase查询语法问题，暂时跳过数据库更新
-                // supabase.postgrest["events"].update(updateData).eq("id", event.id)
-                Log.d("NetworkDataManager", "事件更新跳过数据库操作，仅本地处理")
+                supabase.postgrest["events"].update(updateData) {
+                    filter {
+                        eq("id", event.id)
+                    }
+                }
 
                 Log.d("NetworkDataManager", "事件更新成功")
                 Result.success(Unit)

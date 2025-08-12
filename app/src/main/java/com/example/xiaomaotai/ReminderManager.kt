@@ -407,7 +407,11 @@ class ReminderManager(private val context: Context) {
                 context,
                 "test_notification".hashCode(),
                 testIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
             )
             
             // 设置5秒后触发测试通知
@@ -429,11 +433,41 @@ class ReminderManager(private val context: Context) {
                 }
                 Log.d("ReminderManager", "测试通知已设置，5秒后触发")
             } else {
-                Log.w("ReminderManager", "没有精确闹钟权限，无法发送测试通知")
+                // 对于没有精确闹钟权限的情况，直接发送通知
+                Log.w("ReminderManager", "没有精确闹钟权限，直接发送测试通知")
+                sendDirectTestNotification()
             }
             
         } catch (e: Exception) {
             Log.e("ReminderManager", "发送测试通知失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 直接发送测试通知 - 用于没有精确闹钟权限的情况
+     */
+    private fun sendDirectTestNotification() {
+        try {
+            // 确保通知渠道存在
+            createNotificationChannel()
+            
+            // 直接通过ReminderReceiver发送通知
+            val receiver = ReminderReceiver()
+            val testIntent = Intent(context, ReminderReceiver::class.java).apply {
+                action = "com.example.xiaomaotai.REMINDER"
+                putExtra("event_id", "test_notification_direct")
+                putExtra("event_name", "测试通知")
+                putExtra("event_date", "test")
+                putExtra("days_remaining", 0)
+                putExtra("reminder_label", "测试")
+            }
+            
+            // 直接调用onReceive方法
+            receiver.onReceive(context, testIntent)
+            Log.d("ReminderManager", "直接发送测试通知成功")
+            
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "直接发送测试通知失败: ${e.message}")
         }
     }
 

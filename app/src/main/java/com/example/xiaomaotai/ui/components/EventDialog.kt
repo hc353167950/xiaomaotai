@@ -27,15 +27,14 @@ fun EventDialog(
     dataManager: DataManager
 ) {
     var eventName by remember { mutableStateOf(event?.eventName ?: "") }
-    var eventDate by remember { mutableStateOf(event?.eventDate ?: "") }
     var errorMessage by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    
+
     // 字数限制检查
     val isNameTooLong = eventName.length > 10
-    
+
     // 根据事件类型选择对应的Tab
-    var selectedTab by remember { 
+    var selectedTab by remember {
         mutableStateOf(
             when {
                 event?.eventDate?.startsWith("lunar:") == true -> 1 // 农历
@@ -44,13 +43,13 @@ fun EventDialog(
             }
         )
     }
-    
+
     // Initialize calendar state - 编辑时回显事件日期，新建时默认当天
     val initialCalendar = remember {
         val cal = Calendar.getInstance()
         if (event?.eventDate?.isNotEmpty() == true) {
             try {
-                val dateToparse = when {
+                val dateToParse = when {
                     event.eventDate.startsWith("lunar:") -> {
                         // 农历日期：lunar:2025-08-10 -> 2025-08-10
                         event.eventDate.removePrefix("lunar:")
@@ -65,7 +64,7 @@ fun EventDialog(
                     }
                 }
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                cal.time = sdf.parse(dateToparse)!!
+                cal.time = sdf.parse(dateToParse)!!
             } catch (e: Exception) {
                 // Keep today's date on parsing error
                 cal.time = Date()
@@ -76,21 +75,10 @@ fun EventDialog(
         }
         cal
     }
-    
+
     var selectedYear by remember { mutableStateOf(initialCalendar.get(Calendar.YEAR)) }
     var selectedMonth by remember { mutableStateOf(initialCalendar.get(Calendar.MONTH) + 1) }
     var selectedDay by remember { mutableStateOf(initialCalendar.get(Calendar.DAY_OF_MONTH)) }
-
-    val dateFormatter = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    }
-
-    // Set initial date string if empty
-    LaunchedEffect(Unit) {
-        if (eventDate.isEmpty()) {
-            eventDate = dateFormatter.format(initialCalendar.time)
-        }
-    }
     
     // 手势返回处理
     BackHandler {
@@ -212,8 +200,6 @@ fun EventDialog(
                                 selectedYear = currentYear
                             }
                             selectedTab = 0
-                            // 切换到公历时更新eventDate格式
-                            eventDate = String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
                         },
                         text = { 
                             Text(
@@ -232,8 +218,6 @@ fun EventDialog(
                                 selectedYear = currentYear
                             }
                             selectedTab = 1
-                            // 切换到农历时更新eventDate格式
-                            eventDate = "lunar:${String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)}"
                         },
                         text = { 
                             Text(
@@ -247,8 +231,6 @@ fun EventDialog(
                         selected = selectedTab == 2,
                         onClick = { 
                             selectedTab = 2
-                            // 切换到忽略年份时更新eventDate格式
-                            eventDate = String.format("%02d-%02d", selectedMonth, selectedDay)
                         },
                         text = { 
                             Text(
@@ -272,13 +254,6 @@ fun EventDialog(
                         selectedYear = year
                         selectedMonth = month
                         selectedDay = day
-                        
-                        // 根据当前选中的Tab更新eventDate格式
-                        eventDate = when (selectedTab) {
-                            1 -> "lunar:${String.format("%04d-%02d-%02d", year, month, day)}" // 农历格式
-                            2 -> String.format("%02d-%02d", month, day) // 忽略年份格式
-                            else -> String.format("%04d-%02d-%02d", year, month, day) // 公历格式
-                        }
                     }
                 )
                 
@@ -303,26 +278,27 @@ fun EventDialog(
                             return@Button
                         }
                         
+                        // 确保使用最新的eventDate格式
+                        val finalEventDate = when (selectedTab) {
+                            1 -> "lunar:${String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)}" // 农历格式
+                            2 -> String.format("%02d-%02d", selectedMonth, selectedDay) // 忽略年份格式
+                            else -> String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay) // 公历格式
+                        }
+
                         // 检查重复事件（编辑时排除自己）
                         scope.launch {
                             val existingEvents = dataManager.getEvents()
                             val isDuplicate = existingEvents.any { existingEvent ->
-                                existingEvent.eventName == eventName && 
-                                existingEvent.eventDate == eventDate &&
+                                existingEvent.eventName == eventName &&
+                                existingEvent.eventDate == finalEventDate &&
                                 existingEvent.id != (event?.id ?: "")
                             }
-                            
+
                             if (isDuplicate) {
                                 errorMessage = "已存在相同名称和日期的事件"
                                 return@launch
                             }
                             
-                            // 确保使用最新的eventDate格式
-                            val finalEventDate = when (selectedTab) {
-                                1 -> "lunar:${String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)}" // 农历格式
-                                2 -> String.format("%02d-%02d", selectedMonth, selectedDay) // 忽略年份格式
-                                else -> String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay) // 公历格式
-                            }
                             onSave(eventName, finalEventDate)
                         }
                     },

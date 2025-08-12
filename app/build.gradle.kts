@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.xiaomaotai"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.01"
+        versionCode = 3
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

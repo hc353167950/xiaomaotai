@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import com.example.xiaomaotai.DataManager
 import com.example.xiaomaotai.User
+import com.example.xiaomaotai.ValidationUtils
 import kotlinx.coroutines.launch
 
 @Composable
@@ -47,9 +48,6 @@ fun ProfileScreen(
 ) {
     var showLoginScreen by remember { mutableStateOf(false) }
     var showRegisterScreen by remember { mutableStateOf(false) }
-
-    // 检查是否应该直接显示登录或注册页面（通过外部导航）
-    // 这个逻辑已经不需要了，直接使用内部状态管理
 
     // 手势返回处理
     BackHandler {
@@ -70,11 +68,13 @@ fun ProfileScreen(
                     .padding(16.dp)
             ) {
                 // 顶部栏
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    IconButton(onClick = { showRegisterScreen = false }) {
+                    IconButton(
+                        onClick = { showRegisterScreen = false },
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "返回",
@@ -85,7 +85,7 @@ fun ProfileScreen(
                         text = "注册",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp)
+                        modifier = Modifier.align(Alignment.Center)
                     )
                 }
 
@@ -97,7 +97,7 @@ fun ProfileScreen(
                         showRegisterScreen = false
                         onLogin(user)
                     },
-                    onSwitchToLogin = { 
+                    onSwitchToLogin = {
                         showRegisterScreen = false
                         showLoginScreen = true
                     }
@@ -112,11 +112,13 @@ fun ProfileScreen(
                     .padding(16.dp)
             ) {
                 // 顶部栏
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    IconButton(onClick = { showLoginScreen = false }) {
+                    IconButton(
+                        onClick = { showLoginScreen = false },
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "返回",
@@ -127,7 +129,7 @@ fun ProfileScreen(
                         text = "登录",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp)
+                        modifier = Modifier.align(Alignment.Center)
                     )
                 }
 
@@ -139,7 +141,7 @@ fun ProfileScreen(
                         showLoginScreen = false
                         onLogin(user)
                     },
-                    onSwitchToRegister = { 
+                    onSwitchToRegister = {
                         showLoginScreen = false
                         showRegisterScreen = true
                     },
@@ -206,7 +208,7 @@ fun ProfileMainScreen(
             verticalArrangement = Arrangement.Top
         ) {
             Spacer(modifier = Modifier.height(60.dp))
-            
+
             // 内容区域 - 靠中上位置
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -273,7 +275,7 @@ fun LoggedInProfileScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -305,7 +307,7 @@ fun LoggedInProfileScreen(
             verticalArrangement = Arrangement.Top
         ) {
             Spacer(modifier = Modifier.height(60.dp))
-            
+
             // 内容区域 - 靠中上位置
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -358,15 +360,15 @@ fun LoggedInProfileScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        
+
                         Spacer(modifier = Modifier.height(8.dp))
-                        
+
                         Text(
                             text = "@${user.username}",
                             fontSize = 16.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        
+
                         if (!user.email.isNullOrEmpty()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
@@ -432,9 +434,9 @@ fun ProfileMenuItem(
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(24.dp)
         )
-        
+
         Spacer(modifier = Modifier.width(16.dp))
-        
+
         Column(
             modifier = Modifier.weight(1f)
         ) {
@@ -450,7 +452,7 @@ fun ProfileMenuItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        
+
         Icon(
             imageVector = Icons.Default.KeyboardArrowRight,
             contentDescription = null,
@@ -469,9 +471,11 @@ fun LoginScreen(
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf("") }
+    var usernameError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var serverErrorMessage by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
-    
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -491,21 +495,21 @@ fun LoginScreen(
         // 用户名输入框
         OutlinedTextField(
             value = username,
-            onValueChange = { username = it },
-            label = { 
-                Text(
-                    "用户名",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                username = it.filter { c -> c.isLetterOrDigit() }.take(20)
+                usernameError = null
+                serverErrorMessage = ""
             },
-            placeholder = { 
-                Text(
-                    "请输入用户名",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("用户名", fontSize = 13.sp) },
+            placeholder = { Text("请输入用户名", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            isError = usernameError != null || serverErrorMessage.isNotEmpty(),
+            supportingText = {
+                if (usernameError != null) {
+                    Text(usernameError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
             shape = RoundedCornerShape(10.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -521,23 +525,23 @@ fun LoginScreen(
         // 密码输入框
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
-            label = { 
-                Text(
-                    "密码",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                password = it.take(20)
+                passwordError = null
+                serverErrorMessage = ""
             },
-            placeholder = { 
-                Text(
-                    "请输入密码",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("密码", fontSize = 13.sp) },
+            placeholder = { Text("请输入密码", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            isError = passwordError != null || serverErrorMessage.isNotEmpty(),
+            supportingText = {
+                if (passwordError != null) {
+                    Text(passwordError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
             shape = RoundedCornerShape(10.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -559,18 +563,16 @@ fun LoginScreen(
                 text = "忘记密码？",
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 13.sp,
-                modifier = Modifier.clickable {
-                    onNavigateToForgotPassword()
-                }
+                modifier = Modifier.clickable { onNavigateToForgotPassword() }
             )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 错误信息
-        if (errorMessage.isNotEmpty()) {
+        // 服务器错误信息
+        if (serverErrorMessage.isNotEmpty()) {
             Text(
-                text = errorMessage,
+                text = serverErrorMessage,
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
@@ -580,25 +582,33 @@ fun LoginScreen(
         // 登录按钮
         Button(
             onClick = {
-                scope.launch {
-                    isLoading = true
-                    errorMessage = ""
-                    try {
-                        val result = dataManager.loginUser(username, password)
-                        if (result.isSuccess) {
-                            val user = result.getOrNull()!!
-                            onLoginSuccess(user)
-                            Toast.makeText(context, "登录成功", Toast.LENGTH_SHORT).show()
-                        } else {
-                            errorMessage = result.exceptionOrNull()?.message ?: "登录失败"
+                val usernameValidation = ValidationUtils.validateUsername(username)
+                val passwordValidation = ValidationUtils.validatePassword(password)
+
+                usernameError = if (!usernameValidation.isValid) usernameValidation.message else null
+                passwordError = if (!passwordValidation.isValid) passwordValidation.message else null
+
+                if (usernameValidation.isValid && passwordValidation.isValid) {
+                    scope.launch {
+                        isLoading = true
+                        serverErrorMessage = ""
+                        try {
+                            val result = dataManager.loginUser(username, password)
+                            if (result.isSuccess) {
+                                val user = result.getOrNull()!!
+                                onLoginSuccess(user)
+                                Toast.makeText(context, "登录成功", Toast.LENGTH_SHORT).show()
+                            } else {
+                                serverErrorMessage = result.exceptionOrNull()?.message ?: "登录失败"
+                            }
+                        } finally {
+                            isLoading = false
                         }
-                    } finally {
-                        isLoading = false
                     }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading && username.isNotEmpty() && password.isNotEmpty(),
+            enabled = !isLoading,
             shape = RoundedCornerShape(10.dp)
         ) {
             Text("登录")
@@ -611,10 +621,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = "还没有账号？",
-                fontSize = 13.sp
-            )
+            Text("还没有账号？", fontSize = 13.sp)
             Text(
                 text = "立即注册",
                 color = MaterialTheme.colorScheme.primary,
@@ -624,8 +631,7 @@ fun LoginScreen(
                     .clickable { onSwitchToRegister() }
             )
         }
-        
-        // 全屏加载指示器
+
         if (isLoading) {
             GlobalLoadingDialog()
         }
@@ -643,14 +649,33 @@ fun RegisterScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf("") }
+
+    var usernameError by remember { mutableStateOf<String?>(null) }
+    var nicknameError by remember { mutableStateOf<String?>(null) }
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var confirmPasswordError by remember { mutableStateOf<String?>(null) }
+    var serverErrorMessage by remember { mutableStateOf("") }
+
     var isLoading by remember { mutableStateOf(false) }
-    
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    fun isValidEmail(email: String): Boolean {
-        return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    fun validateAllFields(): Boolean {
+        val usernameValidation = ValidationUtils.validateUsername(username)
+        val nicknameValidation = ValidationUtils.validateNickname(nickname)
+        val emailValidation = ValidationUtils.validateEmail(email)
+        val passwordValidation = ValidationUtils.validatePassword(password, username)
+        val confirmPasswordValidation = if (password != confirmPassword) "两次输入的密码不一致" else null
+
+        usernameError = if (!usernameValidation.isValid) usernameValidation.message else null
+        nicknameError = if (!nicknameValidation.isValid) nicknameValidation.message else null
+        emailError = if (!emailValidation.isValid) emailValidation.message else null
+        passwordError = if (!passwordValidation.isValid) passwordValidation.message else null
+        confirmPasswordError = confirmPasswordValidation
+
+        return usernameError == null && nicknameError == null && emailError == null && passwordError == null && confirmPasswordError == null
     }
 
     Column(
@@ -672,29 +697,22 @@ fun RegisterScreen(
         // 用户名输入框
         OutlinedTextField(
             value = username,
-            onValueChange = { username = it },
-            label = { 
-                Text(
-                    "用户名",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                username = it.filter { char -> char.isLetterOrDigit() }.take(20)
+                usernameError = null
+                serverErrorMessage = ""
             },
-            placeholder = { 
-                Text(
-                    "请输入用户名",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("用户名", fontSize = 13.sp) },
+            placeholder = { Text("请输入用户名 (仅英文和数字)", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            isError = usernameError != null,
+            supportingText = {
+                if (usernameError != null) {
+                    Text(usernameError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
+            shape = RoundedCornerShape(10.dp)
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -702,29 +720,21 @@ fun RegisterScreen(
         // 昵称输入框
         OutlinedTextField(
             value = nickname,
-            onValueChange = { nickname = it },
-            label = { 
-                Text(
-                    "昵称",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                nickname = it.take(10)
+                nicknameError = null
             },
-            placeholder = { 
-                Text(
-                    "请输入昵称",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("昵称", fontSize = 13.sp) },
+            placeholder = { Text("请输入昵称", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            isError = nicknameError != null,
+            supportingText = {
+                if (nicknameError != null) {
+                    Text(nicknameError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
+            shape = RoundedCornerShape(10.dp)
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -732,72 +742,46 @@ fun RegisterScreen(
         // 邮箱输入框
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
-            label = { 
-                Text(
-                    "邮箱",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                email = it
+                emailError = null
             },
-            placeholder = { 
-                Text(
-                    "请输入邮箱",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("邮箱", fontSize = 13.sp) },
+            placeholder = { Text("请输入邮箱", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            isError = emailError != null,
+            supportingText = {
+                if (emailError != null) {
+                    Text(emailError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
+            shape = RoundedCornerShape(10.dp)
         )
-
-        // 邮箱错误提示
-        if (email.isNotEmpty() && !isValidEmail(email)) {
-            Text(
-                text = "请输入正确的邮箱格式",
-                color = MaterialTheme.colorScheme.error,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-            )
-        }
 
         Spacer(modifier = Modifier.height(14.dp))
 
         // 密码输入框
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
-            label = { 
-                Text(
-                    "密码",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                password = it.take(20)
+                passwordError = null
             },
-            placeholder = { 
-                Text(
-                    "请输入密码",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("密码", fontSize = 13.sp) },
+            placeholder = { Text("请输入密码", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            isError = passwordError != null,
+            supportingText = {
+                if (passwordError != null) {
+                    Text(passwordError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
+            shape = RoundedCornerShape(10.dp)
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -805,39 +789,31 @@ fun RegisterScreen(
         // 确认密码输入框
         OutlinedTextField(
             value = confirmPassword,
-            onValueChange = { confirmPassword = it },
-            label = { 
-                Text(
-                    "确认密码",
-                    fontSize = 13.sp
-                ) 
+            onValueChange = {
+                confirmPassword = it.take(20)
+                confirmPasswordError = null
             },
-            placeholder = { 
-                Text(
-                    "再输入一遍密码",
-                    fontSize = 13.sp
-                ) 
-            },
+            label = { Text("确认密码", fontSize = 13.sp) },
+            placeholder = { Text("再输入一遍密码", fontSize = 13.sp) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            isError = confirmPasswordError != null,
+            supportingText = {
+                if (confirmPasswordError != null) {
+                    Text(confirmPasswordError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                }
+            },
+            shape = RoundedCornerShape(10.dp)
         )
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 错误信息
-        if (errorMessage.isNotEmpty()) {
+        // 服务器错误信息
+        if (serverErrorMessage.isNotEmpty()) {
             Text(
-                text = errorMessage,
+                text = serverErrorMessage,
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
@@ -847,72 +823,27 @@ fun RegisterScreen(
         // 注册按钮
         Button(
             onClick = {
-                scope.launch {
-                    isLoading = true
-                    errorMessage = ""
-                    
-                    // 输入验证
-                    when {
-                        username.isEmpty() -> {
-                            errorMessage = "请输入用户名"
+                if (validateAllFields()) {
+                    scope.launch {
+                        isLoading = true
+                        serverErrorMessage = ""
+                        try {
+                            val result = dataManager.registerUser(username, nickname, email, password)
+                            if (result.isSuccess) {
+                                val user = result.getOrNull()!!
+                                onRegisterSuccess(user)
+                                Toast.makeText(context, "注册成功", Toast.LENGTH_SHORT).show()
+                            } else {
+                                serverErrorMessage = result.exceptionOrNull()?.message ?: "注册失败"
+                            }
+                        } finally {
                             isLoading = false
-                            return@launch
                         }
-                        nickname.isEmpty() -> {
-                            errorMessage = "请输入昵称"
-                            isLoading = false
-                            return@launch
-                        }
-                        email.isEmpty() -> {
-                            errorMessage = "请输入邮箱"
-                            isLoading = false
-                            return@launch
-                        }
-                        !isValidEmail(email) -> {
-                            errorMessage = "请输入正确的邮箱格式"
-                            isLoading = false
-                            return@launch
-                        }
-                        password.isEmpty() -> {
-                            errorMessage = "请输入密码"
-                            isLoading = false
-                            return@launch
-                        }
-                        password.length < 6 -> {
-                            errorMessage = "密码长度不能少于6位"
-                            isLoading = false
-                            return@launch
-                        }
-                        confirmPassword.isEmpty() -> {
-                            errorMessage = "请确认密码"
-                            isLoading = false
-                            return@launch
-                        }
-                        password != confirmPassword -> {
-                            errorMessage = "两次输入的密码不一致"
-                            isLoading = false
-                            return@launch
-                        }
-                    }
-                    
-                    try {
-                        val result = dataManager.registerUser(username, nickname, email, password)
-                        if (result.isSuccess) {
-                            val user = result.getOrNull()!!
-                            onRegisterSuccess(user)
-                            Toast.makeText(context, "注册成功", Toast.LENGTH_SHORT).show()
-                        } else {
-                            errorMessage = result.exceptionOrNull()?.message ?: "注册失败"
-                        }
-                    } finally {
-                        isLoading = false
                     }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading && username.isNotEmpty() && nickname.isNotEmpty() &&
-                    email.isNotEmpty() && password.isNotEmpty() && confirmPassword.isNotEmpty() &&
-                    isValidEmail(email),
+            enabled = !isLoading,
             shape = RoundedCornerShape(10.dp)
         ) {
             Text("注册")
@@ -925,10 +856,7 @@ fun RegisterScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = "已有账号？",
-                fontSize = 13.sp
-            )
+            Text("已有账号？", fontSize = 13.sp)
             Text(
                 text = "立即登录",
                 color = MaterialTheme.colorScheme.primary,
@@ -938,8 +866,7 @@ fun RegisterScreen(
                     .clickable { onSwitchToLogin() }
             )
         }
-        
-        // 全屏加载指示器
+
         if (isLoading) {
             GlobalLoadingDialog()
         }

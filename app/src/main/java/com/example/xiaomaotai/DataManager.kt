@@ -137,8 +137,10 @@ class DataManager(private val context: Context) {
                 ).withAutoDetectedType() // 自动检测并设置事件类型
                 val result = networkDataManager.updateEvent(eventToUpdate)
                 if (result.isSuccess) {
-                    Log.d(TAG, "Event updated on network. Refreshing data.")
-                    getCurrentUser()?.let { loadUserData(it.id) }
+                    Log.d(TAG, "Event updated on network. Updating local cache.")
+                    // 直接更新本地缓存，而不是重新加载所有数据
+                    localEvents = localEvents.map { if (it.id == eventToUpdate.id) eventToUpdate else it }
+                    saveEventsLocally(localEvents) // 保存到SharedPreferences
                     reminderManager.updateReminder(eventToUpdate)
                 } else {
                     Log.e(TAG, "Failed to update event on network: ${result.exceptionOrNull()?.message}")
