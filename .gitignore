@@ -18,6 +18,9 @@
 
 # Local configuration files
 local.properties
+
+# 敏感配置文件
+app/src/main/java/com/example/xiaomaotai/SupabaseConfig.kt
 gradle.properties
 
 # Signing keys (IMPORTANT: Keep private!)
