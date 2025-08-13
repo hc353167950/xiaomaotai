@@ -227,7 +227,7 @@ fun MainApp(dataManager: DataManager) {
                     currentUser = null
                 },
                 onNavigateToForgotPassword = {
-                    forgotPasswordSource = currentScreen
+                    forgotPasswordSource = "profile"
                     currentScreen = "forgot_password"
                 },
                 onNavigateToSettings = {
@@ -240,7 +240,7 @@ fun MainApp(dataManager: DataManager) {
                     currentScreen = "register"
                 },
                 onBack = {
-                    currentScreen = "home"
+                    // 我的页面返回手势应该退出到桌面，不处理返回事件让系统处理
                 }
             )
             "settings" -> SettingsScreen(
@@ -268,7 +268,7 @@ fun MainApp(dataManager: DataManager) {
                     },
                     onLogout = { },
                     onNavigateToForgotPassword = {
-                        forgotPasswordSource = currentScreen
+                        forgotPasswordSource = "login"
                         currentScreen = "forgot_password"
                     },
                     onNavigateToSettings = {

@@ -56,8 +56,9 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
     ) {
         item {
             // 简约顶部导航栏
@@ -78,10 +79,6 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     modifier = Modifier.padding(start = 8.dp)
                 )
             }
-        }
-        
-        item {
-            Spacer(modifier = Modifier.height(12.dp))
         }
         
         item {
@@ -135,13 +132,12 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                     }
                     
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
                     // 提示文字
                     Text(
                         text = "提示：关闭通知权限后将无法接收纪念日提醒",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
             }
@@ -196,8 +192,6 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                     }
                     
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
                     // 提示文字
                     Text(
                         text = if (permissionSummary.hasExactAlarm) {
@@ -212,7 +206,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             MaterialTheme.colorScheme.error
                         },
                         fontWeight = FontWeight.Medium,
-                        lineHeight = 14.sp
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
             }
@@ -263,12 +258,11 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         )
                     }
                     
-                    Spacer(modifier = Modifier.height(6.dp))
-                    
                     Text(
                         text = "如果5秒后没有收到通知，请检查通知权限和精确闹钟权限",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(top = 6.dp)
                     )
                 }
             }
@@ -321,14 +315,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         }
                     }
                     
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
                     // 特殊说明
                     Text(
                         text = "当天添加的纪念日会在30秒后立即提醒",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
             }

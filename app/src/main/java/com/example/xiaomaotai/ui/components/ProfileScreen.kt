@@ -50,12 +50,10 @@ fun ProfileScreen(
     var showRegisterScreen by remember { mutableStateOf(false) }
 
     // 手势返回处理
-    BackHandler {
+    BackHandler(enabled = showLoginScreen || showRegisterScreen) {
         if (showLoginScreen || showRegisterScreen) {
             showLoginScreen = false
             showRegisterScreen = false
-        } else {
-            onBack()
         }
     }
 
