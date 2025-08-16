@@ -71,7 +71,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 16.dp)
-                .padding(bottom = 80.dp), // 为底部版本信息预留空间
+                .padding(bottom = 140.dp), // 为底部版本信息预留更多空间
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
         // 简约顶部导航栏
@@ -323,14 +323,14 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 80.dp), // 距离底部导航栏的距离
+                .padding(horizontal = 30.dp)
+                .padding(bottom = 80.dp), // 增加距离底部导航栏的距离
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "小茅台 V$versionName",
                 fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), // 提高可见度
                 fontWeight = FontWeight.Medium
             )
         }
