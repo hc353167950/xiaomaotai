@@ -56,6 +56,7 @@ import com.example.xiaomaotai.ui.components.ForgotPasswordScreen
 import com.example.xiaomaotai.ui.components.ProfileScreen
 import com.example.xiaomaotai.ui.components.EventItem
 import com.example.xiaomaotai.ui.components.EventDialog
+import com.example.xiaomaotai.ui.components.CardStyleManager
 import com.example.xiaomaotai.ui.components.GlobalLoadingDialog
 import com.example.xiaomaotai.ui.components.calculateDaysAfter
 import com.example.xiaomaotai.ui.components.SortScreen
@@ -171,6 +172,7 @@ fun MainApp(dataManager: DataManager) {
     var currentScreen by remember { mutableStateOf("home") }
     var forgotPasswordSource by remember { mutableStateOf("login") } // 跟踪忘记密码页面的来源
     var refreshKey by remember { mutableStateOf(0) }
+    var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
     
     val permissionManager = remember { PermissionManager(context) }
 
@@ -222,7 +224,10 @@ fun MainApp(dataManager: DataManager) {
                 dataManager = dataManager,
                 loginState = dataManager.isLoggedIn(),
                 modifier = Modifier.padding(paddingValues),
-                onNavigateToSort = { currentScreen = "sort" },
+                onNavigateToSort = { events ->
+                    sortScreenEvents = events // 保存事件列表
+                    currentScreen = "sort"
+                },
                 refreshKey = refreshKey
             )
             "profile" -> ProfileScreen(
@@ -318,6 +323,7 @@ fun MainApp(dataManager: DataManager) {
             "sort" -> {
                 SortScreen(
                     dataManager = dataManager,
+                    initialEvents = sortScreenEvents, // 传递首页的事件列表
                     onDone = {
                         refreshKey += 1
                         currentScreen = "home"
@@ -413,20 +419,26 @@ fun HomeScreen(
     dataManager: DataManager,
     loginState: Boolean,
     modifier: Modifier = Modifier,
-    onNavigateToSort: () -> Unit,
+    onNavigateToSort: (List<Event>) -> Unit, // 修改为传递事件列表
     refreshKey: Int
 ) {
     var events by remember { mutableStateOf<List<Event>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+    var currentScreen by remember { mutableStateOf("home") }
+    var currentUser by remember { mutableStateOf<User?>(null) }
+    var refreshKey by remember { mutableStateOf(0) }
+    var forgotPasswordSource by remember { mutableStateOf("profile") }
+    var showNotificationPrompt by remember { mutableStateOf(false) }
+    var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
+    var dragSortEvents by remember { mutableStateOf<List<Event>>(emptyList()) }
+    var sortOrder by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    
+    // 添加缺失的状态变量
+    var isDragSortMode by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<Event?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var showDeleteAllConfirm by remember { mutableStateOf(false) }
-
-    // 拖拽排序相关状态
-    var isDragSortMode by remember { mutableStateOf(false) }
-    var dragSortEvents by remember { mutableStateOf<List<Event>>(emptyList()) }
-    var sortOrder by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -468,18 +480,18 @@ fun HomeScreen(
                 val newEvents = dataManager.getEvents()
                 events = newEvents
 
-                // 应用排序
+                // 应用排序 - DataManager已经按sortOrder降序排序，确保新建事件在最上面
                 val sortedEvents = if (sortOrder.isNotEmpty()) {
                     val sortedList = mutableListOf<Event>()
                     sortOrder.forEach { id: String ->
                         newEvents.find { it.id == id }?.let { sortedList.add(it) }
                     }
-                    // 添加新增的事件到最前面
-                    val newItems =
-                        newEvents.filter { event: Event -> !sortOrder.contains(event.id) }
+                    // 添加新增的事件到最前面（DataManager已排序，新建事件sortOrder最大）
+                    val newItems = newEvents.filter { event: Event -> !sortOrder.contains(event.id) }
                     newItems + sortedList
                 } else {
-                    newEvents.sortedBy { it.sortOrder }
+                    // DataManager已经按sortOrder降序排序，直接使用
+                    newEvents
                 }
                 events = sortedEvents
 
@@ -527,7 +539,7 @@ fun HomeScreen(
                     if (events.isNotEmpty()) {
                         IconButton(
                             onClick = {
-                                onNavigateToSort()
+                                onNavigateToSort(events) // 传递当前事件列表
                             },
                             modifier = Modifier.size(40.dp)
                         ) {
@@ -939,10 +951,12 @@ fun HomeScreen(
                                 val eventToSave = currentEvent?.copy(
                                     eventName = eventName,
                                     eventDate = eventDate
+                                    // 编辑时不改变backgroundId，保持原有样式
                                 ) ?: Event(
                                     eventName = eventName,
                                     eventDate = eventDate,
-                                    sortOrder = (events.maxOfOrNull { it.sortOrder } ?: -1) + 1
+                                    sortOrder = (events.maxOfOrNull { it.sortOrder } ?: 0) + 1,
+                                    backgroundId = CardStyleManager.getRandomStyleId() // 新建事件时分配随机样式
                                 )
 
                                 if (currentEvent != null) {

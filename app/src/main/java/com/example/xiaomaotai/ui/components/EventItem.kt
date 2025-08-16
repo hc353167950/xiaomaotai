@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +32,8 @@ import com.example.xiaomaotai.LunarCalendarHelper
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 
 @Composable
 fun EventItem(
@@ -90,24 +93,19 @@ fun EventItem(
     }
 
     // 预设的4种渐变背景
-    // 背景选择逻辑
-    val cardBrush = remember(event.eventName, event.backgroundId) {
-        when {
-            event.eventName.contains("生日") -> Brush.linearGradient(
-                colors = listOf(Color(0xFFFFAFBD), Color(0xFFFFC3A0))
+    // 优化后的卡片样式系统 - 使用渐变背景
+    val cardStyle = remember(event.backgroundId, days) {
+        if (days == 0L) {
+            // 只有今天的事件使用特殊的金色高亮样式
+            CardStyleManager.CardStyle(
+                id = 0,
+                name = "今日",
+                gradientBrush = Brush.horizontalGradient(listOf(Color(0xFFFFD700), Color(0xFFFFA500))),
+                textColor = Color.White
             )
-            event.eventName.contains("纪念") -> Brush.linearGradient(
-                colors = listOf(Color(0xFFB39DDB), Color(0xFF9575CD))
-            )
-            else -> {
-                when (event.backgroundId) {
-                    1 -> Brush.linearGradient(colors = listOf(Color(0xFF1A2980), Color(0xFF26D0CE))) // 海洋
-                    2 -> Brush.linearGradient(colors = listOf(Color(0xFFFF512F), Color(0xFFDD2476))) // 日落
-                    3 -> Brush.linearGradient(colors = listOf(Color(0xFF134E5E), Color(0xFF71B280))) // 森林
-                    4 -> Brush.linearGradient(colors = listOf(Color(0xFFF2994A), Color(0xFFF2C94C))) // 沙漠
-                    else -> Brush.linearGradient(colors = listOf(Color(0xFF81C784), Color(0xFFA5D6A7))) // 默认绿色
-                }
-            }
+        } else {
+            // 其他所有日期（包括过期和未来）都使用事件创建时的原始样式
+            CardStyleManager.getCardStyle(event.backgroundId)
         }
     }
 
@@ -122,7 +120,10 @@ fun EventItem(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(cardBrush)
+                .background(
+                    brush = cardStyle.gradientBrush,
+                    shape = RoundedCornerShape(16.dp)
+                )
         ) {
             Column(
                 modifier = Modifier
@@ -142,7 +143,7 @@ fun EventItem(
                             text = event.eventName,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = cardStyle.textColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -153,13 +154,13 @@ fun EventItem(
                             Text(
                                 text = "${parts[0]} ${parts[1]}", // 月日 + 年份在同一行
                                 fontSize = 13.sp,
-                                color = Color.White.copy(alpha = 0.85f)
+                                color = cardStyle.textColor.copy(alpha = 0.8f)
                             )
                         } else {
                             Text(
                                 text = dateDisplayText,
                                 fontSize = 13.sp,
-                                color = Color.White.copy(alpha = 0.85f)
+                                color = cardStyle.textColor.copy(alpha = 0.8f)
                             )
                         }
                     }
@@ -178,7 +179,7 @@ fun EventItem(
                                     text = "今天",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = cardStyle.textColor
                                 )
                             } else if (label.contains("明天") || label.contains("昨天")) {
                                 // 显示明天/昨天
@@ -186,7 +187,7 @@ fun EventItem(
                                     text = label,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = cardStyle.textColor
                                 )
                             } else if (label.contains("年")) {
                                 // 显示年份格式的文本
@@ -194,7 +195,7 @@ fun EventItem(
                                     text = label,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                    color = cardStyle.textColor,
                                     textAlign = TextAlign.End
                                 )
                             } else {
@@ -203,12 +204,12 @@ fun EventItem(
                                     text = days.toString(),
                                     fontSize = 26.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
+                                    color = cardStyle.textColor
                                 )
                                 Text(
                                     text = if (label.startsWith("还有")) "天后" else "天前",
                                     fontSize = 11.sp,
-                                    color = Color.White.copy(alpha = 0.8f)
+                                    color = cardStyle.textColor.copy(alpha = 0.8f),
                                 )
                             }
                         }
@@ -220,7 +221,7 @@ fun EventItem(
                             Icon(
                                 imageVector = Icons.Default.Menu,
                                 contentDescription = "拖拽",
-                                tint = Color.White.copy(alpha = 0.7f),
+                                tint = cardStyle.textColor.copy(alpha = 0.7f),
                                 modifier = Modifier
                                     .size(20.dp)
                                     .pointerInput(isDragMode, dragIndex) {

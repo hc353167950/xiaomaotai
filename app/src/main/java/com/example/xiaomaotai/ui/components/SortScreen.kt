@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import com.example.xiaomaotai.DataManager
 import com.example.xiaomaotai.Event
@@ -45,11 +46,16 @@ import kotlin.math.roundToInt
 @Composable
 fun SortScreen(
     dataManager: DataManager,
+    initialEvents: List<Event>, // 接收首页传过来的事件列表
     onDone: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var events by remember { mutableStateOf<List<Event>>(emptyList()) }
+    var events by remember { mutableStateOf(initialEvents) } // 直接使用传入的初始事件
+    var homePageEvents by remember { mutableStateOf(initialEvents) } // 保存首页传过来的顺序
     var isSaving by remember { mutableStateOf(false) }
+    
+    // 排序状态：0=默认，1=正序，2=倒序
+    var currentSortType by remember { mutableStateOf(0) }
     
     // 最简化的拖拽状态
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
@@ -58,58 +64,96 @@ fun SortScreen(
     // 添加列表状态管理，确保排序后显示顶部
     val listState = rememberLazyListState()
 
-    LaunchedEffect(Unit) {
-        events = dataManager.getEvents().sortedBy { it.sortOrder }
+    // 每次进入都重置为默认状态，显示首页传过来的顺序
+    LaunchedEffect(initialEvents) {
+        events = initialEvents
+        homePageEvents = initialEvents // 保存首页传过来的顺序
+        currentSortType = 0 // 每次进入都重置为默认状态
     }
 
-    // 一键排序函数 - 保持当前视图位置
+    // 保存函数 - 提取公共保存逻辑
+    fun saveAndExit() {
+        scope.launch {
+            isSaving = true
+            try {
+                // 使用较大的基数确保排序后的事件仍在前面
+                val baseSortOrder = 1000
+                val updated = events.mapIndexed { index, e -> 
+                    e.copy(sortOrder = baseSortOrder - index) 
+                }
+                updated.forEach { event ->
+                    dataManager.updateEvent(event)
+                }
+                onDone()
+            } finally {
+                isSaving = false
+            }
+        }
+    }
+
+    // 手势返回处理 - 与保存按钮效果一致
+    BackHandler {
+        if (!isSaving) {
+            saveAndExit()
+        }
+    }
+
+    // 排序函数 - 保持当前视图位置
     fun sortDefault() {
         val currentFirstVisibleIndex = listState.firstVisibleItemIndex
         val currentScrollOffset = listState.firstVisibleItemScrollOffset
         
-        events = events.sortedBy { it.sortOrder }
+        // 恢复为首页传过来的顺序
+        events = homePageEvents
+        currentSortType = 0
         
-        // 始终保持当前视图位置，包括在顶部的情况
+        // 只保持视图位置，不保存到数据库
         scope.launch {
             listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
         }
     }
-    fun sortUpcomingFirst() {
+    
+    fun sortAscending() {
         val currentFirstVisibleIndex = listState.firstVisibleItemIndex
         val currentScrollOffset = listState.firstVisibleItemScrollOffset
         
-        events = events.sortedWith { e1, e2 ->
-            val d1 = calculateDaysAfter(e1.eventDate).second
-            val d2 = calculateDaysAfter(e2.eventDate).second
-            when {
-                d1 >= 0 && d2 >= 0 -> d1.compareTo(d2)
-                d1 >= 0 && d2 < 0 -> -1
-                d1 < 0 && d2 >= 0 -> 1
-                else -> abs(d1).compareTo(abs(d2))
-            }
+        // 按剩余天数正序排序（最近的事件在前）
+        val sortedEvents = events.sortedBy { event ->
+            calculateDaysAfter(event.eventDate).second
         }
         
-        // 始终保持当前视图位置，包括在顶部的情况
+        // 重新分配sortOrder但不立即保存到数据库
+        val baseSortOrder = 1000
+        val updatedEvents = sortedEvents.mapIndexed { index, event ->
+            event.copy(sortOrder = baseSortOrder - index)
+        }
+        events = updatedEvents
+        currentSortType = 1
+        
+        // 只保持视图位置，不保存到数据库
         scope.launch {
             listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
         }
     }
-    fun sortPastFirst() {
+    
+    fun sortDescending() {
         val currentFirstVisibleIndex = listState.firstVisibleItemIndex
         val currentScrollOffset = listState.firstVisibleItemScrollOffset
         
-        events = events.sortedWith { e1, e2 ->
-            val d1 = calculateDaysAfter(e1.eventDate).second
-            val d2 = calculateDaysAfter(e2.eventDate).second
-            when {
-                d1 < 0 && d2 < 0 -> abs(d1).compareTo(abs(d2))
-                d1 < 0 && d2 >= 0 -> -1
-                d1 >= 0 && d2 < 0 -> 1
-                else -> d2.compareTo(d1)
-            }
+        // 按剩余天数倒序排序（最远的事件在前）
+        val sortedEvents = events.sortedByDescending { event ->
+            calculateDaysAfter(event.eventDate).second
         }
         
-        // 始终保持当前视图位置，包括在顶部的情况
+        // 重新分配sortOrder但不立即保存到数据库
+        val baseSortOrder = 1000
+        val updatedEvents = sortedEvents.mapIndexed { index, event ->
+            event.copy(sortOrder = baseSortOrder - index)
+        }
+        events = updatedEvents
+        currentSortType = 2
+        
+        // 只保持视图位置，不保存到数据库
         scope.launch {
             listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
         }
@@ -124,7 +168,6 @@ fun SortScreen(
     // 拖拽结束处理 - 保持视图位置不变，修复顶部拖拽BUG
     fun onDragFinish(fromIndex: Int, finalTargetIndex: Int) {
         if (fromIndex != finalTargetIndex && finalTargetIndex in events.indices) {
-            // 精确记录当前视图位置，包括滚动偏移
             val currentFirstVisibleIndex = listState.firstVisibleItemIndex
             val currentScrollOffset = listState.firstVisibleItemScrollOffset
             
@@ -132,27 +175,18 @@ fun SortScreen(
             val draggedEvent = newEvents.removeAt(fromIndex)
             newEvents.add(finalTargetIndex, draggedEvent)
             
-            // 更新sortOrder以保持顺序
+            // 更新sortOrder以保持顺序 - 使用较大的基数确保排序后的事件仍在前面
+            val baseSortOrder = 1000 // 使用较大的基数
             val updatedEvents = newEvents.mapIndexed { index, event ->
-                event.copy(sortOrder = index)
+                event.copy(sortOrder = baseSortOrder - index) // 降序分配，第一个事件sortOrder最大
             }
             
             events = updatedEvents
-            
-            // 立即保持视图位置，避免任何滚动跳动
+            // 拖拽后保持当前排序状态，不重置为默认状态
+        
+            // 保持当前视图位置，避免滚动跳动，但不立即保存到数据库
             scope.launch {
-                try {
-                    // 先恢复视图位置，确保用户看不到任何跳动
-                    listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
-                    
-                    // 然后保存到数据库
-                    updatedEvents.forEach { event ->
-                        dataManager.updateEvent(event)
-                    }
-                } catch (e: Exception) {
-                    // 处理错误，但仍要保持视图位置
-                    listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
-                }
+                listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
             }
         }
         
@@ -194,18 +228,7 @@ fun SortScreen(
                     }
                     
                     Button(
-                        onClick = {
-                            scope.launch {
-                                isSaving = true
-                                try {
-                                    val updated = events.mapIndexed { index, e -> e.copy(sortOrder = index) }
-                                    dataManager.updateEventOrder(updated)
-                                    onDone()
-                                } finally {
-                                    isSaving = false
-                                }
-                            }
-                        },
+                        onClick = { saveAndExit() },
                         enabled = !isSaving
                     ) {
                         Text("保存")
@@ -224,33 +247,66 @@ fun SortScreen(
             
             Spacer(Modifier.height(16.dp))
             
-            // 快捷排序按钮
+            // 简洁的排序按钮 - 等比展示
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                OutlinedButton(
+                // 默认按钮
+                TextButton(
                     onClick = { sortDefault() },
                     enabled = !isSaving,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (currentSortType == 0) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 ) {
-                    Text("默认顺序", fontSize = 14.sp)
+                    Text(
+                        text = "默认",
+                        fontWeight = if (currentSortType == 0) FontWeight.Bold else FontWeight.Normal,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
                 
-                OutlinedButton(
-                    onClick = { sortUpcomingFirst() },
+                // 正序按钮
+                TextButton(
+                    onClick = { sortAscending() },
                     enabled = !isSaving,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (currentSortType == 1) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 ) {
-                    Text("将至优先", fontSize = 14.sp)
+                    Text(
+                        text = "正序",
+                        fontWeight = if (currentSortType == 1) FontWeight.Bold else FontWeight.Normal,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
                 
-                OutlinedButton(
-                    onClick = { sortPastFirst() },
+                // 倒序按钮
+                TextButton(
+                    onClick = { sortDescending() },
                     enabled = !isSaving,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = if (currentSortType == 2) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 ) {
-                    Text("已过优先", fontSize = 14.sp)
+                    Text(
+                        text = "倒序",
+                        fontWeight = if (currentSortType == 2) FontWeight.Bold else FontWeight.Normal,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
                 }
             }
         }
