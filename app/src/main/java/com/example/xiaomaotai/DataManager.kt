@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.google.gson.Gson
+import com.example.xiaomaotai.ui.components.CardStyleManager
 
 class DataManager(private val context: Context) {
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences("MemoryDayApp", Context.MODE_PRIVATE)
@@ -285,8 +286,10 @@ class DataManager(private val context: Context) {
         sharedPreferences.edit()
             .remove("current_user")
             .remove("local_events")
+            .remove("offline_events") // 同时清除离线事件缓存
             .apply()
         localEvents = emptyList()
+        offlineEvents = emptyList() // 清空离线事件列表
     }
 
     fun isLoggedIn(): Boolean {
@@ -370,27 +373,24 @@ class DataManager(private val context: Context) {
     }
 
     /**
-     * 为新事件分配背景ID
+     * 为新事件分配背景ID - 统一使用随机10张背景图
      */
     private fun assignBackgroundId(event: Event): Int {
         return when {
-            event.eventName.contains("生日") || event.eventName.contains("纪念") -> 0 // 特定类型使用默认背景
             event.backgroundId != 0 -> event.backgroundId // 如果已经有背景ID，保持不变
             else -> {
-                // 为其他事件随机分配背景ID (0-4)
-                kotlin.math.abs(event.id.hashCode() % 5)
+                // 所有事件统一从10张背景图中随机分配 (1-10)
+                CardStyleManager.getRandomStyleId()
             }
         }
     }
 
     /**
-     * 更新事件时的背景ID处理
+     * 更新事件时的背景ID处理 - 统一使用随机10张背景图
      */
     private fun updateBackgroundId(event: Event): Int {
-        return when {
-            event.eventName.contains("生日") || event.eventName.contains("纪念") -> 0 // 改为特定类型，重置为默认
-            else -> event.backgroundId // 保持原有背景
-        }
+        // 更新时保持原有背景，不进行特殊处理
+        return event.backgroundId
     }
 
     /**

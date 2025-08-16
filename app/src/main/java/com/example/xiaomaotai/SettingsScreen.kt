@@ -62,13 +62,18 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         }
     }
     
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Box(
+        modifier = Modifier.fillMaxSize()
     ) {
+        // 主要内容区域 - 可滚动
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 16.dp)
+                .padding(bottom = 80.dp), // 为底部版本信息预留空间
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         // 简约顶部导航栏
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -311,22 +316,23 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 )
             }
         }
+        } // 结束主要内容区域的Column
         
-        // 底部版本信息 - Android 15 兼容性优化
-        Spacer(modifier = Modifier.height(24.dp))
-        
+        // 固定在底部的版本信息 - 动态适配
         Box(
             modifier = Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(bottom = 32.dp), // 增加底部间距确保在Android 15上可见
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 80.dp), // 距离底部导航栏的距离
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "小茅台 V$versionName",
-                fontSize = 14.sp, // 增大字体确保可见性
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), // 提高透明度确保可见
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 fontWeight = FontWeight.Medium
             )
         }
-    }
+    } // 结束Box
 }
