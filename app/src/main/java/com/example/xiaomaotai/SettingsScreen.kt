@@ -312,17 +312,21 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
         
-        // 底部版本信息
+        // 底部版本信息 - Android 15 兼容性优化
         Spacer(modifier = Modifier.height(24.dp))
         
-        Text(
-            text = "小茅台 V$versionName",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
+                .padding(bottom = 32.dp), // 增加底部间距确保在Android 15上可见
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "小茅台 V$versionName",
+                fontSize = 14.sp, // 增大字体确保可见性
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), // 提高透明度确保可见
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }

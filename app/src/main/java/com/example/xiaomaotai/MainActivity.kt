@@ -201,7 +201,9 @@ fun MainApp(dataManager: DataManager) {
     Scaffold(
         bottomBar = {
             if (currentScreen != "sort") {
-                NavigationBar {
+                NavigationBar(
+                    modifier = Modifier.height(64.dp) // 缩小底部导航栏高度
+                ) {
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
                         label = { Text("首页") },
@@ -472,28 +474,14 @@ fun HomeScreen(
         }
     }
 
-    // 数据加载 - 优化加载状态，保持现有数据直到新数据加载完成
+    // 数据加载 - 保持数据库原始顺序，不进行额外排序
     LaunchedEffect(loginState, dataManager, refreshKey) {
         scope.launch {
             isLoading = true
             try {
                 val newEvents = dataManager.getEvents()
+                // 直接使用数据库返回的顺序，不进行任何重新排序
                 events = newEvents
-
-                // 应用排序 - DataManager已经按sortOrder降序排序，确保新建事件在最上面
-                val sortedEvents = if (sortOrder.isNotEmpty()) {
-                    val sortedList = mutableListOf<Event>()
-                    sortOrder.forEach { id: String ->
-                        newEvents.find { it.id == id }?.let { sortedList.add(it) }
-                    }
-                    // 添加新增的事件到最前面（DataManager已排序，新建事件sortOrder最大）
-                    val newItems = newEvents.filter { event: Event -> !sortOrder.contains(event.id) }
-                    newItems + sortedList
-                } else {
-                    // DataManager已经按sortOrder降序排序，直接使用
-                    newEvents
-                }
-                events = sortedEvents
 
                 Log.d("HomeScreen", "Events loaded: ${newEvents.size}")
             } catch (e: Exception) {
@@ -891,23 +879,9 @@ fun HomeScreen(
                                             isLoading = true
                                             try {
                                                 dataManager.deleteEvent(event.id)
-                                                val newEvents = dataManager.getEvents()
-
-                                                // 应用排序
-                                                val sortedEvents = if (sortOrder.isNotEmpty()) {
-                                                    val sortedList = mutableListOf<Event>()
-                                                    sortOrder.forEach { id ->
-                                                        newEvents.find { it.id == id }
-                                                            ?.let { sortedList.add(it) }
-                                                    }
-                                                    val newItems = newEvents.filter { event ->
-                                                        !sortOrder.contains(event.id)
-                                                    }
-                                                    newItems + sortedList
-                                                } else {
-                                                    newEvents.sortedBy { it.sortOrder }
-                                                }
-                                                events = sortedEvents
+                                                
+                                                // 只从当前列表中移除删除的卡片，不重新排序
+                                                events = events.filter { it.id != event.id }
                                             } catch (e: Exception) {
                                                 Log.e("HomeScreen", "Failed to delete event", e)
                                             } finally {
@@ -1004,9 +978,8 @@ fun HomeScreen(
                                         eventsToDelete.forEach { event ->
                                             dataManager.deleteEvent(event.id)
                                         }
-                                        // 获取最新数据并更新
-                                        val newEvents = dataManager.getEvents()
-                                        events = newEvents
+                                        // 直接清空列表，不重新排序
+                                        events = emptyList()
                                     } catch (e: Exception) {
                                         Log.e("HomeScreen", "Failed to delete all events", e)
                                     } finally {
