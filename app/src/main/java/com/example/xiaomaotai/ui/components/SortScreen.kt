@@ -71,7 +71,7 @@ fun SortScreen(
         currentSortType = 0 // 每次进入都重置为默认状态
     }
 
-    // 保存函数 - 提取公共保存逻辑
+    // 保存函数 - 使用批量更新优化性能
     fun saveAndExit() {
         scope.launch {
             isSaving = true
@@ -81,9 +81,8 @@ fun SortScreen(
                 val updated = events.mapIndexed { index, e -> 
                     e.copy(sortOrder = baseSortOrder - index) 
                 }
-                updated.forEach { event ->
-                    dataManager.updateEvent(event)
-                }
+                // 使用批量更新方法，性能更好
+                dataManager.updateEventOrder(updated)
                 onDone()
             } finally {
                 isSaving = false
@@ -231,7 +230,21 @@ fun SortScreen(
                         onClick = { saveAndExit() },
                         enabled = !isSaving
                     ) {
-                        Text("保存")
+                        if (isSaving) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Text("保存中...")
+                            }
+                        } else {
+                            Text("保存")
+                        }
                     }
                 }
             }
@@ -337,6 +350,42 @@ fun SortScreen(
                         onDragFinish(fromIndex, finalTargetIndex)
                     }
                 )
+            }
+        }
+    }
+    
+    // 全屏loading遮罩
+    if (isSaving) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier.padding(32.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        strokeWidth = 4.dp
+                    )
+                    Text(
+                        text = "正在保存排序...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "请稍候，不要关闭页面",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
     }

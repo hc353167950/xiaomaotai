@@ -27,6 +27,16 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     val context = LocalContext.current
     val permissionManager = remember { PermissionManager(context) }
     var permissionSummary by remember { mutableStateOf(PermissionSummary(false, false, false)) }
+    
+    // 动态获取版本号
+    val versionName = remember {
+        try {
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            packageInfo.versionName
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+    }
 
     // 手势返回处理
     BackHandler {
@@ -184,6 +194,71 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         
 
         
+        // 提醒时间说明 - 重新设计为提示区域样式
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Text(
+                    text = "提醒时间",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                
+                Text(
+                    text = "系统会在以下时间自动发送提醒通知",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                )
+                
+                // 提醒时间列表 - 统一样式
+                val reminderTimes = listOf(
+                    "提前7天" to "上午 9:00",
+                    "提前1天" to "上午 9:00", 
+                    "当天" to "上午 9:00"
+                )
+                
+                reminderTimes.forEach { (time, schedule) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "• $time",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = schedule,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+                
+                // 特殊说明
+                Text(
+                    text = "当天添加的纪念日会在30秒后立即提醒",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+        
         // 测试通知功能
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -237,61 +312,17 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
         
-        // 提醒时间说明 - 简约设计
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp)
-            ) {
-                Text(
-                    text = "提醒时间",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                
-                // 简洁的提醒时间列表
-                val reminderTimes = listOf(
-                    "提前7天" to "上午 9:00",
-                    "提前1天" to "上午 9:00", 
-                    "当天" to "上午 9:00"
-                )
-                
-                reminderTimes.forEach { (time, schedule) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = time,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = schedule,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-                
-                // 特殊说明
-                Text(
-                    text = "当天添加的纪念日会在30秒后立即提醒",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-        }
+        // 底部版本信息
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            text = "小茅台 V$versionName",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
 }
