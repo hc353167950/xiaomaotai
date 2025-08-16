@@ -1,21 +1,28 @@
 package com.example.xiaomaotai.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import com.example.xiaomaotai.Event
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -23,14 +30,27 @@ import android.util.Log
 import com.example.xiaomaotai.LunarCalendarHelper
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 @Composable
 fun EventItem(
     event: Event,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
+    isDragMode: Boolean = false,
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onDragMove: ((Int, Int) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    dragIndex: Int = -1,
+    modifier: Modifier = Modifier,
+    onDragStart: (() -> Unit)? = null,
+    onDrag: ((Offset) -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    
+    // 拖拽相关状态
+    var isCurrentlyDragging by remember { mutableStateOf(false) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
     
     // 计算天数逻辑 - 只显示多少天之后
     val (label, days) = remember(event.eventDate) { 
@@ -70,23 +90,32 @@ fun EventItem(
     }
 
     // 预设的4种渐变背景
-    val gradients = listOf(
-        Brush.linearGradient(colors = listOf(Color(0xFF6A11CB), Color(0xFF2575FC))),
-        Brush.linearGradient(colors = listOf(Color(0xFFF857A6), Color(0xFFFF5858))),
-        Brush.linearGradient(colors = listOf(Color(0xFF1E3C72), Color(0xFF2A5298))),
-        Brush.linearGradient(colors = listOf(Color(0xFF00B09B), Color(0xFF96C93D)))
-    )
-
-    // 根据事件名称和日期的组合哈希值稳定地选择一个渐变
-    val cardBrush = gradients[remember(event.eventName, event.eventDate) { 
-        val hash = "${event.eventName}${event.eventDate}".hashCode()
-        (hash % gradients.size).let { if (it < 0) it + gradients.size else it } 
-    }]
+    // 背景选择逻辑
+    val cardBrush = remember(event.eventName, event.backgroundId) {
+        when {
+            event.eventName.contains("生日") -> Brush.linearGradient(
+                colors = listOf(Color(0xFFFFAFBD), Color(0xFFFFC3A0))
+            )
+            event.eventName.contains("纪念") -> Brush.linearGradient(
+                colors = listOf(Color(0xFFB39DDB), Color(0xFF9575CD))
+            )
+            else -> {
+                when (event.backgroundId) {
+                    1 -> Brush.linearGradient(colors = listOf(Color(0xFF1A2980), Color(0xFF26D0CE))) // 海洋
+                    2 -> Brush.linearGradient(colors = listOf(Color(0xFFFF512F), Color(0xFFDD2476))) // 日落
+                    3 -> Brush.linearGradient(colors = listOf(Color(0xFF134E5E), Color(0xFF71B280))) // 森林
+                    4 -> Brush.linearGradient(colors = listOf(Color(0xFFF2994A), Color(0xFFF2C94C))) // 沙漠
+                    else -> Brush.linearGradient(colors = listOf(Color(0xFF81C784), Color(0xFFA5D6A7))) // 默认绿色
+                }
+            }
+        }
+    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(120.dp),
+            .height(120.dp)
+            .scale(if (isCurrentlyDragging) 1.05f else 1f),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
     ) {
@@ -135,11 +164,14 @@ fun EventItem(
                         }
                     }
 
-                    // Right: Days count
-                    Column(
-                        horizontalAlignment = Alignment.End,
+                    // Right: Days count and drag handle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(start = 16.dp)
                     ) {
+                        Column(
+                            horizontalAlignment = Alignment.End
+                        ) {
                         if (label != "日期无效") {
                             if (label == "就是今天") {
                                 Text(
@@ -180,63 +212,99 @@ fun EventItem(
                                 )
                             }
                         }
+                        }
+                        
+                        // 拖拽图标 - 只在拖拽模式下显示
+                        if (isDragMode) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "拖拽",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .pointerInput(isDragMode, dragIndex) {
+                                        if (isDragMode) {
+                                            detectDragGestures(
+                                                onDragStart = { offset ->
+                                                    isCurrentlyDragging = true
+                                                    onDragStart?.invoke()
+                                                },
+                                                onDragEnd = {
+                                                    isCurrentlyDragging = false
+                                                    onDragEnd?.invoke()
+                                                },
+                                                onDragCancel = {
+                                                    isCurrentlyDragging = false
+                                                    onDragEnd?.invoke()
+                                                },
+                                                onDrag = { change, _ ->
+                                                    onDrag?.invoke(Offset(0f, change.position.y))
+                                                }
+                                            )
+                                        }
+                                    }
+                            )
+                        }
                     }
                 }
                 
-                // Bottom section: Action buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Edit button
-                    Button(
-                        onClick = onEdit,
-                        modifier = Modifier
-                            .height(32.dp)
-                            .padding(end = 8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White.copy(alpha = 0.2f),
-                            contentColor = Color.White
-                        ),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                // Bottom section: Action buttons - 在拖拽模式下隐藏编辑和删除按钮
+                if (!isDragMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "编辑",
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "编辑",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    
-                    // Delete button
-                    Button(
-                        onClick = { showDeleteConfirm = true },
-                        modifier = Modifier.height(32.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Red.copy(alpha = 0.3f),
-                            contentColor = Color.White
-                        ),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "删除",
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "删除",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        // Edit button
+                        Button(
+                            onClick = onEdit,
+                            modifier = Modifier
+                                .height(32.dp)
+                                .padding(end = 8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White.copy(alpha = 0.2f),
+                                contentColor = Color.White
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "编辑",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "编辑",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        
+                        // Delete button
+                        Button(
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier.height(32.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Red.copy(alpha = 0.3f),
+                                contentColor = Color.White
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "删除",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "删除",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }

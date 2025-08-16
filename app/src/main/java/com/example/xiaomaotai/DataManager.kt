@@ -6,7 +6,6 @@ import android.util.Log
 import com.google.gson.Gson
 
 class DataManager(private val context: Context) {
-    private val TAG = "DataManager"
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences("MemoryDayApp", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val networkDataManager = NetworkDataManager()
@@ -77,9 +76,12 @@ class DataManager(private val context: Context) {
                         status = EventStatus.NORMAL,
                         sortOrder = syncSortOrder++
                     )
-                    networkDataManager.saveEvent(syncEvent, userId)
+                    val result = networkDataManager.saveEvent(syncEvent, userId)
+                    if (!result.isSuccess) {
+                        Log.e(TAG, "Failed to sync offline event ${event.id}: ${result.exceptionOrNull()?.message}")
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to sync offline event ${event.id}: ${e.message}")
+                    Log.e(TAG, "Exception while syncing offline event ${event.id}: ${e.message}")
                 }
             }
             clearOfflineEvents()
@@ -103,7 +105,8 @@ class DataManager(private val context: Context) {
             val currentUser = getCurrentUser()!!
             try {
                 val eventToSave = event.copy(
-                    status = EventStatus.NORMAL
+                    status = EventStatus.NORMAL,
+                    backgroundId = assignBackgroundId(event)
                 ).withAutoDetectedType() // 自动检测并设置事件类型
                 val result = networkDataManager.saveEvent(eventToSave, currentUser.id)
                 if (result.isSuccess) {
@@ -120,7 +123,8 @@ class DataManager(private val context: Context) {
             Log.d(TAG, "Adding event to offline cache.")
             val offlineEvent = event.copy(
                 id = "offline_${System.currentTimeMillis()}",
-                status = EventStatus.NORMAL
+                status = EventStatus.NORMAL,
+                backgroundId = assignBackgroundId(event)
             ).withAutoDetectedType() // 自动检测并设置事件类型
             offlineEvents = offlineEvents + offlineEvent
             saveOfflineEventsLocally(offlineEvents)
@@ -133,7 +137,8 @@ class DataManager(private val context: Context) {
         if (isLoggedIn()) {
             try {
                 val eventToUpdate = event.copy(
-                    status = EventStatus.UPDATED
+                    status = EventStatus.UPDATED,
+                    backgroundId = updateBackgroundId(event)
                 ).withAutoDetectedType() // 自动检测并设置事件类型
                 val result = networkDataManager.updateEvent(eventToUpdate)
                 if (result.isSuccess) {
@@ -150,9 +155,10 @@ class DataManager(private val context: Context) {
             }
         } else {
             Log.d(TAG, "Updating event in offline cache.")
-            offlineEvents = offlineEvents.map { if (it.id == event.id) event else it }
+            val updatedEvent = event.copy(backgroundId = updateBackgroundId(event)).withAutoDetectedType()
+            offlineEvents = offlineEvents.map { if (it.id == updatedEvent.id) updatedEvent else it }
             saveOfflineEventsLocally(offlineEvents)
-            reminderManager.updateReminder(event)
+            reminderManager.updateReminder(updatedEvent)
         }
     }
 
@@ -359,6 +365,58 @@ class DataManager(private val context: Context) {
     // 验证验证码（不重置密码，仅验证）
     suspend fun verifyCode(username: String, email: String, code: String): Result<String> {
         return networkDataManager.verifyCode(username, email, code)
+    }
+
+    /**
+     * 为新事件分配背景ID
+     */
+    private fun assignBackgroundId(event: Event): Int {
+        return when {
+            event.eventName.contains("生日") || event.eventName.contains("纪念") -> 0 // 特定类型使用默认背景
+            event.backgroundId != 0 -> event.backgroundId // 如果已经有背景ID，保持不变
+            else -> {
+                // 为其他事件随机分配背景ID (0-4)
+                kotlin.math.abs(event.id.hashCode() % 5)
+            }
+        }
+    }
+
+    /**
+     * 更新事件时的背景ID处理
+     */
+    private fun updateBackgroundId(event: Event): Int {
+        return when {
+            event.eventName.contains("生日") || event.eventName.contains("纪念") -> 0 // 改为特定类型，重置为默认
+            else -> event.backgroundId // 保持原有背景
+        }
+    }
+
+    /**
+     * 更新事件排序
+     */
+    suspend fun updateEventOrder(events: List<Event>) {
+        Log.d(TAG, "Updating event order for ${events.size} events")
+        if (isLoggedIn()) {
+            val currentUser = getCurrentUser()!!
+            try {
+                // 批量更新排序
+                val result = networkDataManager.updateEventOrder(events, currentUser.id)
+                if (result.isSuccess) {
+                    Log.d(TAG, "Event order updated successfully")
+                    // 更新本地缓存
+                    localEvents = events
+                    saveEventsLocally(localEvents)
+                } else {
+                    Log.e(TAG, "Failed to update event order: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception while updating event order: ${e.message}")
+            }
+        } else {
+            Log.d(TAG, "Updating offline event order")
+            offlineEvents = events
+            saveOfflineEventsLocally(offlineEvents)
+        }
     }
 
     companion object {

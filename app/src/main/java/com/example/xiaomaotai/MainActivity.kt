@@ -30,8 +30,10 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -55,6 +57,8 @@ import com.example.xiaomaotai.ui.components.ProfileScreen
 import com.example.xiaomaotai.ui.components.EventItem
 import com.example.xiaomaotai.ui.components.EventDialog
 import com.example.xiaomaotai.ui.components.GlobalLoadingDialog
+import com.example.xiaomaotai.ui.components.calculateDaysAfter
+import com.example.xiaomaotai.ui.components.SortScreen
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -166,6 +170,7 @@ fun MainApp(dataManager: DataManager) {
     var showExactAlarmPermissionDialog by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf("home") }
     var forgotPasswordSource by remember { mutableStateOf("login") } // 跟踪忘记密码页面的来源
+    var refreshKey by remember { mutableStateOf(0) }
     
     val permissionManager = remember { PermissionManager(context) }
 
@@ -193,19 +198,21 @@ fun MainApp(dataManager: DataManager) {
     
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
-                    label = { Text("首页") },
-                    selected = currentScreen == "home",
-                    onClick = { currentScreen = "home" }
-                )
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
-                    label = { Text("我的") },
-                    selected = currentScreen == "profile",
-                    onClick = { currentScreen = "profile" }
-                )
+            if (currentScreen != "sort") {
+                NavigationBar {
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
+                        label = { Text("首页") },
+                        selected = currentScreen == "home",
+                        onClick = { currentScreen = "home" }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
+                        label = { Text("我的") },
+                        selected = currentScreen == "profile",
+                        onClick = { currentScreen = "profile" }
+                    )
+                }
             }
         }
     ) { paddingValues ->
@@ -214,7 +221,9 @@ fun MainApp(dataManager: DataManager) {
             "home" -> HomeScreen(
                 dataManager = dataManager,
                 loginState = dataManager.isLoggedIn(),
-                modifier = Modifier.padding(paddingValues)
+                modifier = Modifier.padding(paddingValues),
+                onNavigateToSort = { currentScreen = "sort" },
+                refreshKey = refreshKey
             )
             "profile" -> ProfileScreen(
                 dataManager = dataManager,
@@ -306,6 +315,15 @@ fun MainApp(dataManager: DataManager) {
                     }
                 )
             }
+            "sort" -> {
+                SortScreen(
+                    dataManager = dataManager,
+                    onDone = {
+                        refreshKey += 1
+                        currentScreen = "home"
+                    }
+                )
+            }
         }
     }
     
@@ -391,29 +409,46 @@ fun ExactAlarmPermissionDialog(
 }
 
 @Composable
-fun HomeScreen(dataManager: DataManager, loginState: Boolean, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    dataManager: DataManager,
+    loginState: Boolean,
+    modifier: Modifier = Modifier,
+    onNavigateToSort: () -> Unit,
+    refreshKey: Int
+) {
     var events by remember { mutableStateOf<List<Event>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<Event?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var showDeleteAllConfirm by remember { mutableStateOf(false) }
+
+    // 拖拽排序相关状态
+    var isDragSortMode by remember { mutableStateOf(false) }
+    var dragSortEvents by remember { mutableStateOf<List<Event>>(emptyList()) }
+    var sortOrder by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    
+
     // 手势返回处理
     BackHandler {
         when {
+            isDragSortMode -> {
+                isDragSortMode = false
+            }
+
             showAddDialog || selectedEvent != null -> {
                 showAddDialog = false
                 selectedEvent = null
             }
+
             else -> {
                 (context as? Activity)?.finish()
             }
         }
     }
-    
+
     // 过滤搜索结果
     val filteredEvents = remember(events, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -426,12 +461,28 @@ fun HomeScreen(dataManager: DataManager, loginState: Boolean, modifier: Modifier
     }
 
     // 数据加载 - 优化加载状态，保持现有数据直到新数据加载完成
-    LaunchedEffect(loginState, dataManager) {
+    LaunchedEffect(loginState, dataManager, refreshKey) {
         scope.launch {
             isLoading = true
             try {
                 val newEvents = dataManager.getEvents()
                 events = newEvents
+
+                // 应用排序
+                val sortedEvents = if (sortOrder.isNotEmpty()) {
+                    val sortedList = mutableListOf<Event>()
+                    sortOrder.forEach { id: String ->
+                        newEvents.find { it.id == id }?.let { sortedList.add(it) }
+                    }
+                    // 添加新增的事件到最前面
+                    val newItems =
+                        newEvents.filter { event: Event -> !sortOrder.contains(event.id) }
+                    newItems + sortedList
+                } else {
+                    newEvents.sortedBy { it.sortOrder }
+                }
+                events = sortedEvents
+
                 Log.d("HomeScreen", "Events loaded: ${newEvents.size}")
             } catch (e: Exception) {
                 Log.e("HomeScreen", "Failed to load events", e)
@@ -447,288 +498,520 @@ fun HomeScreen(dataManager: DataManager, loginState: Boolean, modifier: Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-        // 顶部标题栏
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "我的纪念日",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "记录生活中的重要时刻",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-            
-            // 右侧按钮组
+            // 顶部标题栏
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 一键删除按钮
-                if (events.isNotEmpty()) {
-                    IconButton(
-                        onClick = { showDeleteAllConfirm = true },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "删除所有",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                Column {
+                    Text(
+                        text = "我的纪念日",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "记录生活中的重要时刻",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 }
-                
+
+                // 右侧按钮组
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 拖拽排序按钮
+                    if (events.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                onNavigateToSort()
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "拖拽排序",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    // 一键删除按钮
+                    if (events.isNotEmpty()) {
+                        IconButton(
+                            onClick = { showDeleteAllConfirm = true },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "删除所有",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
                 // 添加按钮
-                FloatingActionButton(
+                IconButton(
                     onClick = { showAddDialog = true },
-                    modifier = Modifier.size(48.dp),
-                    containerColor = MaterialTheme.colorScheme.primary
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "添加纪念日",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // 搜索栏 - 现代化小巧设计
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(42.dp),
-            shape = RoundedCornerShape(21.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-            Row(
+            // 搜索栏 - 现代化小巧设计
+            Card(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxWidth()
+                    .height(42.dp),
+                shape = RoundedCornerShape(21.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                androidx.compose.foundation.text.BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
-                    ),
-                    decorationBox = { innerTextField ->
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "搜索纪念日",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    fontSize = 14.sp
-                                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "搜索",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "搜索纪念日",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                            alpha = 0.6f
+                                        ),
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                innerTextField()
                             }
-                            innerTextField()
                         }
-                    }
-                )
-                if (searchQuery.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    IconButton(
-                        onClick = { searchQuery = "" },
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "清除",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(14.dp)
-                        )
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "清除",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // 内容区域 - 加载时显示指示器但保持现有数据
-        Box(modifier = Modifier.weight(1f)) {
-            if (filteredEvents.isEmpty() && !isLoading) {
-                // 空状态
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
+            // 根据模式显示不同界面
+            if (isDragSortMode) {
+                // 自定义排序界面
+                Column(modifier = Modifier.weight(1f)) {
+                    // 标题和说明
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "未找到相关纪念日" else "暂无纪念日",
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "尝试使用其他关键词搜索" else "点击右上角按钮添加您的第一个纪念日",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                            textAlign = TextAlign.Center
-                        )
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "自定义排序",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "拖动",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .padding(horizontal = 2.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Text(
+                                    text = "调整顺序，正序/倒序按天数排序",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        // 保存按钮
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // 正序按钮
+                            Button(
+                                onClick = {
+                                    val sortedEvents = dragSortEvents.sortedWith { event1, event2 ->
+                                        val days1 = calculateDaysAfter(event1.eventDate).second
+                                        val days2 = calculateDaysAfter(event2.eventDate).second
+                                        when {
+                                            days1 >= 0 && days2 >= 0 -> days1.compareTo(days2)
+                                            days1 >= 0 && days2 < 0 -> -1
+                                            days1 < 0 && days2 >= 0 -> 1
+                                            else -> days2.compareTo(days1)
+                                        }
+                                    }
+                                    dragSortEvents = sortedEvents
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary
+                                )
+                            ) {
+                                Text("正序", fontSize = 12.sp)
+                            }
+
+                            // 倒序按钮
+                            Button(
+                                onClick = {
+                                    val sortedEvents = dragSortEvents.sortedWith { event1, event2 ->
+                                        val days1 = calculateDaysAfter(event1.eventDate).second
+                                        val days2 = calculateDaysAfter(event2.eventDate).second
+                                        when {
+                                            days1 >= 0 && days2 >= 0 -> days2.compareTo(days1)
+                                            days1 >= 0 && days2 < 0 -> -1
+                                            days1 < 0 && days2 >= 0 -> 1
+                                            else -> days1.compareTo(days2)
+                                        }
+                                    }
+                                    dragSortEvents = sortedEvents
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiary
+                                )
+                            ) {
+                                Text("倒序", fontSize = 12.sp)
+                            }
+
+                            // 默认按钮
+                            Button(
+                                onClick = {
+                                    dragSortEvents = events.sortedBy { it.sortOrder }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.outline
+                                )
+                            ) {
+                                Text("默认", fontSize = 12.sp)
+                            }
+                        }
+
+                        // 保存按钮
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { isDragSortMode = false },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Text("取消", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Button(
+                                onClick = {
+                                    // 保存排序到数据库
+                                    scope.launch {
+                                        isLoading = true
+                                        try {
+                                            // 更新每个事件的 sortOrder
+                                            val updatedEvents =
+                                                dragSortEvents.mapIndexed { index, event ->
+                                                    event.copy(sortOrder = index)
+                                                }
+
+                                            // 调用 DataManager 的批量更新方法
+                                            dataManager.updateEventOrder(updatedEvents)
+
+                                            // 保存本地排序状态
+                                            sortOrder = updatedEvents.map { it.id }
+                                            events = updatedEvents
+                                            isDragSortMode = false
+
+                                            Log.d("HomeScreen", "排序保存成功")
+                                        } catch (e: Exception) {
+                                            Log.e("HomeScreen", "保存排序失败: ${e.message}")
+                                        } finally {
+                                            isLoading = false
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("保存排序")
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 拖拽卡片列表
+                    val dragListState = rememberLazyListState()
+                    LazyColumn(
+                        state = dragListState,
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(dragSortEvents.size) { index ->
+                            val event = dragSortEvents[index]
+                            EventItem(
+                                event = event,
+                                isDragMode = true,
+                                onEdit = { },
+                                onDelete = { },
+                                onDragMove = { fromIndex, toIndex ->
+                                    if (fromIndex != toIndex &&
+                                        fromIndex in 0 until dragSortEvents.size &&
+                                        toIndex in 0 until dragSortEvents.size
+                                    ) {
+                                        val newList = dragSortEvents.toMutableList()
+                                        val item = newList.removeAt(fromIndex)
+                                        newList.add(toIndex, item)
+                                        dragSortEvents = newList
+                                    }
+                                },
+                                dragIndex = index
+                            )
+                        }
                     }
                 }
             } else {
-                // 事件列表
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(filteredEvents.sortedByDescending { it.sortOrder }) { event ->
-                        EventItem(
-                            event = event,
-                            onEdit = { selectedEvent = event },
-                            onDelete = {
+                // 主界面内容区域 - 加载时显示指示器但保持现有数据
+                Box(modifier = Modifier.weight(1f)) {
+                    if (filteredEvents.isEmpty() && !isLoading) {
+                        // 空状态
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = if (searchQuery.isNotEmpty()) "未找到相关纪念日" else "暂无纪念日",
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = if (searchQuery.isNotEmpty()) "尝试使用其他关键词搜索" else "点击右上角按钮添加您的第一个纪念日",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        // 事件列表
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(filteredEvents) { event ->
+                                EventItem(
+                                    event = event,
+                                    isDragMode = false,
+                                    onEdit = { selectedEvent = event },
+                                    onDelete = {
+                                        scope.launch {
+                                            isLoading = true
+                                            try {
+                                                dataManager.deleteEvent(event.id)
+                                                val newEvents = dataManager.getEvents()
+
+                                                // 应用排序
+                                                val sortedEvents = if (sortOrder.isNotEmpty()) {
+                                                    val sortedList = mutableListOf<Event>()
+                                                    sortOrder.forEach { id ->
+                                                        newEvents.find { it.id == id }
+                                                            ?.let { sortedList.add(it) }
+                                                    }
+                                                    val newItems = newEvents.filter { event ->
+                                                        !sortOrder.contains(event.id)
+                                                    }
+                                                    newItems + sortedList
+                                                } else {
+                                                    newEvents.sortedBy { it.sortOrder }
+                                                }
+                                                events = sortedEvents
+                                            } catch (e: Exception) {
+                                                Log.e("HomeScreen", "Failed to delete event", e)
+                                            } finally {
+                                                isLoading = false
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Loading指示器 - 使用GlobalLoadingDialog样式
+                if (isLoading) {
+                    GlobalLoadingDialog()
+                }
+            }
+
+
+
+            if (showAddDialog || selectedEvent != null) {
+                EventDialog(
+                    event = selectedEvent,
+                    onDismiss = {
+                        showAddDialog = false
+                        selectedEvent = null
+                    },
+                    onSave = { eventName: String, eventDate: String ->
+                        // 保存当前编辑的事件引用
+                        val currentEvent = selectedEvent
+
+                        // 先关闭弹窗
+                        showAddDialog = false
+                        selectedEvent = null
+
+                        // 然后开始loading和数据操作
+                        scope.launch {
+                            isLoading = true
+                            try {
+                                val eventToSave = currentEvent?.copy(
+                                    eventName = eventName,
+                                    eventDate = eventDate
+                                ) ?: Event(
+                                    eventName = eventName,
+                                    eventDate = eventDate,
+                                    sortOrder = (events.maxOfOrNull { it.sortOrder } ?: -1) + 1
+                                )
+
+                                if (currentEvent != null) {
+                                    dataManager.updateEvent(eventToSave)
+                                } else {
+                                    dataManager.addEvent(eventToSave)
+                                }
+
+                                // 获取最新数据并更新
+                                val newEvents = dataManager.getEvents()
+                                events = newEvents
+                            } catch (e: Exception) {
+                                Log.e("HomeScreen", "Failed to save event", e)
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    },
+                    dataManager = dataManager
+                )
+            }
+
+            // 一键删除确认对话框
+            if (showDeleteAllConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteAllConfirm = false },
+                    title = { Text("确认删除") },
+                    text = {
+                        Text("确定要删除所有纪念日吗？此操作不可撤销，将删除 ${events.size} 个纪念日。")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                // 保存要删除的事件列表
+                                val eventsToDelete = events.toList()
+
+                                // 先关闭弹窗
+                                showDeleteAllConfirm = false
+
+                                // 然后开始loading和删除操作
                                 scope.launch {
                                     isLoading = true
                                     try {
-                                        dataManager.deleteEvent(event.id)
+                                        // 删除所有事件
+                                        eventsToDelete.forEach { event ->
+                                            dataManager.deleteEvent(event.id)
+                                        }
+                                        // 获取最新数据并更新
                                         val newEvents = dataManager.getEvents()
                                         events = newEvents
                                     } catch (e: Exception) {
-                                        Log.e("HomeScreen", "Failed to delete event", e)
+                                        Log.e("HomeScreen", "Failed to delete all events", e)
                                     } finally {
                                         isLoading = false
                                     }
                                 }
                             }
-                        )
-                    }
-                }
-            }
-        }
-        
-        // Loading指示器 - 使用GlobalLoadingDialog样式
-        if (isLoading) {
-            GlobalLoadingDialog()
-        }
-    }
-
-
-
-    if (showAddDialog || selectedEvent != null) {
-        EventDialog(
-            event = selectedEvent,
-            onDismiss = {
-                showAddDialog = false
-                selectedEvent = null
-            },
-            onSave = { eventName: String, eventDate: String ->
-                // 保存当前编辑的事件引用
-                val currentEvent = selectedEvent
-                
-                // 先关闭弹窗
-                showAddDialog = false
-                selectedEvent = null
-                
-                // 然后开始loading和数据操作
-                scope.launch {
-                    isLoading = true
-                    try {
-                        val eventToSave = currentEvent?.copy(
-                            eventName = eventName,
-                            eventDate = eventDate
-                        ) ?: Event(
-                            eventName = eventName,
-                            eventDate = eventDate,
-                            sortOrder = (events.maxOfOrNull { it.sortOrder } ?: -1) + 1
-                        )
-
-                        if (currentEvent != null) {
-                            dataManager.updateEvent(eventToSave)
-                        } else {
-                            dataManager.addEvent(eventToSave)
+                        ) {
+                            Text("删除", color = MaterialTheme.colorScheme.error)
                         }
-                        
-                        // 获取最新数据并更新
-                        val newEvents = dataManager.getEvents()
-                        events = newEvents
-                    } catch (e: Exception) {
-                        Log.e("HomeScreen", "Failed to save event", e)
-                    } finally {
-                        isLoading = false
-                    }
-                }
-            },
-            dataManager = dataManager
-        )
-    }
-    
-    // 一键删除确认对话框
-    if (showDeleteAllConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteAllConfirm = false },
-            title = { Text("确认删除") },
-            text = { 
-                Text("确定要删除所有纪念日吗？此操作不可撤销，将删除 ${events.size} 个纪念日。") 
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        // 保存要删除的事件列表
-                        val eventsToDelete = events.toList()
-                        
-                        // 先关闭弹窗
-                        showDeleteAllConfirm = false
-                        
-                        // 然后开始loading和删除操作
-                        scope.launch {
-                            isLoading = true
-                            try {
-                                // 删除所有事件
-                                eventsToDelete.forEach { event ->
-                                    dataManager.deleteEvent(event.id)
-                                }
-                                // 获取最新数据并更新
-                                val newEvents = dataManager.getEvents()
-                                events = newEvents
-                            } catch (e: Exception) {
-                                Log.e("HomeScreen", "Failed to delete all events", e)
-                            } finally {
-                                isLoading = false
-                            }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteAllConfirm = false }) {
+                            Text("取消")
                         }
                     }
-                ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteAllConfirm = false }) {
-                    Text("取消")
-                }
+                )
             }
-        )
+        }
     }
 }
 
-}

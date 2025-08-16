@@ -69,7 +69,8 @@ data class Event(
     val eventDate: String, // 日期格式：yyyy-MM-dd, lunar:yyyy-MM-dd, 或 MM-dd
     val sortOrder: Int = 0,
     val status: EventStatus = EventStatus.NORMAL,
-    val eventType: EventType = EventType.SOLAR // 新增：事件类型字段
+    val eventType: EventType = EventType.SOLAR, // 新增：事件类型字段
+    val backgroundId: Int = 0 // 新增：背景ID字段，用于存储背景样式
 ) {
     // 便捷方法：根据eventDate自动推断eventType
     fun withAutoDetectedType(): Event {

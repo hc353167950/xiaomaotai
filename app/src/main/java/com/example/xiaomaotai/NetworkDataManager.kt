@@ -552,6 +552,34 @@ class NetworkDataManager {
         }
     }
     
+    // 批量更新事件排序
+    suspend fun updateEventOrder(events: List<Event>, userId: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("NetworkDataManager", "开始批量更新事件排序: ${events.size} 个事件")
+                
+                // 批量更新每个事件的排序
+                for (event in events) {
+                    val updateData = mapOf("sort_order" to event.sortOrder)
+                    supabase.postgrest["events"]
+                        .update(updateData) {
+                            filter {
+                                eq("id", event.id)
+                                eq("user_id", userId)
+                            }
+                        }
+                }
+                
+                Log.d("NetworkDataManager", "事件排序更新成功")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e("NetworkDataManager", "更新事件排序失败: ${e.message}")
+                e.printStackTrace()
+                Result.failure(e)
+            }
+        }
+    }
+
     // 增加验证码尝试次数
     private suspend fun incrementVerificationAttempts(username: String, email: String, code: String) {
         try {
