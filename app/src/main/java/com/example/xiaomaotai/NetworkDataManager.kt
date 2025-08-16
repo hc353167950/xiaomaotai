@@ -81,6 +81,8 @@ data class EventResponse(
     val status: Int = 0,
     @SerialName("event_type")
     val eventType: Int = 0, // 新增：事件类型字段
+    @SerialName("background_id")
+    val backgroundId: Int = 0, // 新增：背景ID字段
     @SerialName("sync_status")
     val syncStatus: Int? = null,
     @SerialName("created_at")
@@ -101,7 +103,9 @@ data class NewEventDTO(
     val sortOrder: Int,
     val status: Int = 0,
     @SerialName("event_type")
-    val eventType: Int = 0 // 新增：事件类型字段
+    val eventType: Int = 0, // 新增：事件类型字段
+    @SerialName("background_id")
+    val backgroundId: Int = 0 // 新增：背景ID字段
 )
 
 @Serializable
@@ -114,7 +118,9 @@ data class UpdateEventDTO(
     val sortOrder: Int,
     val status: Int = 2,
     @SerialName("event_type")
-    val eventType: Int = 0 // 新增：事件类型字段
+    val eventType: Int = 0, // 新增：事件类型字段
+    @SerialName("background_id")
+    val backgroundId: Int = 0 // 新增：背景ID字段
 )
 
 class NetworkDataManager {
@@ -259,7 +265,8 @@ class NetworkDataManager {
                         eventDate = response.eventDate,
                         sortOrder = response.sortOrder,
                         status = EventStatus.fromInt(response.status),
-                        eventType = EventType.fromInt(response.eventType)
+                        eventType = EventType.fromInt(response.eventType),
+                        backgroundId = response.backgroundId
                     )
                 }
 
@@ -285,7 +292,8 @@ class NetworkDataManager {
                     eventDate = event.eventDate,
                     sortOrder = event.sortOrder,
                     status = event.status.value,
-                    eventType = event.eventType.value
+                    eventType = event.eventType.value,
+                    backgroundId = event.backgroundId
                 )
 
                 Log.d("NetworkDataManager", "准备插入数据库: $newEvent")
@@ -318,7 +326,8 @@ class NetworkDataManager {
                     eventDate = event.eventDate,
                     sortOrder = event.sortOrder,
                     status = event.status.value,
-                    eventType = event.eventType.value
+                    eventType = event.eventType.value,
+                    backgroundId = event.backgroundId
                 )
 
                 Log.d("NetworkDataManager", "准备更新数据库: $updateData")
