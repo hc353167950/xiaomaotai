@@ -27,7 +27,27 @@ fun CustomDatePickerContent(
     onDateChanged: (Int, Int, Int) -> Unit
 ) {
     val years = (1901..2099).toList()
-    val months = (1..12).toList()
+    
+    // 农历月份列表（包含闰月）
+    val months = remember(selectedYear, selectedTab) {
+        if (selectedTab == 1) {
+            // 农历模式，获取包含闰月的月份列表
+            android.util.Log.d("CustomDatePicker", "Getting lunar months for year: $selectedYear")
+            val lunarMonthsList = LunarCalendarHelper.getLunarMonthsInYear(selectedYear)
+            android.util.Log.d("CustomDatePicker", "Lunar months list: $lunarMonthsList")
+            lunarMonthsList.map { (month, isLeap) ->
+                if (isLeap) {
+                    // 闰月使用负数表示，例如闰六月使用-6
+                    -month
+                } else {
+                    month
+                }
+            }
+        } else {
+            // 公历模式，使用正常月份
+            (1..12).toList()
+        }
+    }
     
     // 计算当前月份的天数
     val daysInMonth = remember(selectedYear, selectedMonth, selectedTab) {
@@ -71,12 +91,36 @@ fun CustomDatePickerContent(
             
             WheelPicker(
                 items = months,
-                initialIndex = months.indexOf(selectedMonth).coerceAtLeast(0),
+                initialIndex = months.indexOf(selectedMonth).let { index ->
+                    if (index >= 0) {
+                        index
+                    } else {
+                        // 如果找不到，可能是闰月，尝试找对应的闰月索引
+                        if (selectedTab == 1 && selectedMonth < 0) {
+                            // 闰月情况，找对应的负数索引
+                            months.indexOf(selectedMonth)
+                        } else {
+                            0
+                        }
+                    }
+                }.coerceAtLeast(0),
                 onIndexChanged = { index ->
                     val newMonth = months[index]
                     onDateChanged(selectedYear, newMonth, selectedDay)
                 },
-                itemToString = { if (selectedTab == 1) LunarCalendarHelper.getMonthName(it) else it.toString() },
+                itemToString = { 
+                    if (selectedTab == 1) {
+                        if (it < 0) {
+                            // 闰月显示
+                            LunarCalendarHelper.getLunarMonthName(-it, true)
+                        } else {
+                            // 正常月份显示
+                            LunarCalendarHelper.getLunarMonthName(it, false)
+                        }
+                    } else {
+                        it.toString()
+                    }
+                },
                 modifier = Modifier.weight(1f)
             )
             

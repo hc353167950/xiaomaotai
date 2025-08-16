@@ -44,7 +44,7 @@ fun EventItem(
     onDragMove: ((Int, Int) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
     dragIndex: Int = -1,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier, // 保留但标记为可能未使用
     onDragStart: (() -> Unit)? = null,
     onDrag: ((Offset) -> Unit)? = null
 ) {
@@ -52,28 +52,63 @@ fun EventItem(
     
     // 拖拽相关状态
     var isCurrentlyDragging by remember { mutableStateOf(false) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    val density = LocalDensity.current
+    // 注释掉未使用的变量
+    // var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    // val density = LocalDensity.current
     
     // 计算天数逻辑 - 只显示多少天之后
-    val (label, days) = remember(event.eventDate) { 
-        calculateDaysAfter(event.eventDate)
-    }
+    // 移除remember缓存，让倒计时天数能够每天自动更新
+    val (label, days) = calculateDaysAfter(event.eventDate)
     
     // 获取显示用的日期文本
     val dateDisplayText = remember(event.eventDate) {
         when {
             event.eventDate.startsWith("lunar:") -> {
-                // 农历事件显示格式：腊月初一 2025
+                // 农历事件显示格式：腊月初一 2025 或 闰六月初一 2025
                 val lunarDatePart = event.eventDate.removePrefix("lunar:")
-                val parts = lunarDatePart.split("-")
-                if (parts.size >= 3) {
-                    val year = parts[0]
-                    val month = parts[1].toIntOrNull() ?: 1
-                    val day = parts[2].toIntOrNull() ?: 1
-                    "${getLunarMonthName(month)}${getLunarDayName(day)} $year"
-                } else {
-                    event.eventDate.removePrefix("lunar:")
+                android.util.Log.d("EventItem", "Displaying lunar date: $lunarDatePart")
+                
+                when {
+                    lunarDatePart.contains("-L") -> {
+                        // 正确的闰月格式：2025-L06-10
+                        val parts = lunarDatePart.split("-")
+                        if (parts.size >= 3) {
+                            val year = parts[0]
+                            val monthPart = parts[1] // L06
+                            val day = parts[2].toIntOrNull() ?: 1
+                            val actualMonth = monthPart.substring(1).toIntOrNull() ?: 1
+                            android.util.Log.d("EventItem", "Correct leap month format: year=$year, month=$actualMonth, day=$day")
+                            "${LunarCalendarHelper.getLunarMonthName(actualMonth, true)}${getLunarDayName(day)} $year"
+                        } else {
+                            event.eventDate.removePrefix("lunar:")
+                        }
+                    }
+                    lunarDatePart.contains("--") -> {
+                        // 错误的闰月格式：2025--6-10
+                        val corrected = lunarDatePart.replace("--", "-")
+                        val parts = corrected.split("-")
+                        if (parts.size >= 3) {
+                            val year = parts[0]
+                            val month = parts[1].toIntOrNull() ?: 1
+                            val day = parts[2].toIntOrNull() ?: 1
+                            android.util.Log.d("EventItem", "Incorrect leap month format corrected: year=$year, month=$month, day=$day")
+                            "${LunarCalendarHelper.getLunarMonthName(month, true)}${getLunarDayName(day)} $year"
+                        } else {
+                            event.eventDate.removePrefix("lunar:")
+                        }
+                    }
+                    else -> {
+                        // 正常农历格式：2025-08-10
+                        val parts = lunarDatePart.split("-")
+                        if (parts.size >= 3) {
+                            val year = parts[0]
+                            val month = parts[1].toIntOrNull() ?: 1
+                            val day = parts[2].toIntOrNull() ?: 1
+                            "${LunarCalendarHelper.getLunarMonthName(month, false)}${getLunarDayName(day)} $year"
+                        } else {
+                            event.eventDate.removePrefix("lunar:")
+                        }
+                    }
                 }
             }
             event.eventDate.matches(Regex("\\d{2}-\\d{2}")) -> {
@@ -227,7 +262,7 @@ fun EventItem(
                                     .pointerInput(isDragMode, dragIndex) {
                                         if (isDragMode) {
                                             detectDragGestures(
-                                                onDragStart = { offset ->
+                                                onDragStart = { _ ->
                                                     isCurrentlyDragging = true
                                                     onDragStart?.invoke()
                                                 },
@@ -344,35 +379,66 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
         val isLunarEvent = eventDate.startsWith("lunar:")
         val isMonthDayFormat = eventDate.matches(Regex("\\d{2}-\\d{2}"))
 
-        val targetDate = when {
+        // 对于农历事件，使用专门的倒计时计算函数
+        val daysBetween = when {
             isLunarEvent -> {
                 val lunarDatePart = eventDate.removePrefix("lunar:")
-                val parts = lunarDatePart.split("-")
-                if (parts.size >= 3) {
-                    val lunarMonth = parts[1].toInt()
-                    val lunarDay = parts[2].toInt()
-                    // 先尝试当年对应的阳历日期
-                    var target: LocalDate = try {
-                        val lunarResult = LunarCalendarHelper.lunarToSolar(today.year, lunarMonth, lunarDay)
-                        LocalDate.parse(lunarResult)
-                    } catch (e: Exception) {
-                        Log.w("EventItem", "农历转换失败: $eventDate", e)
-                        today.plusDays(1) // 默认明天
-                    }
-                    
-                    // 如果当年的日期已过，计算明年的日期
-                    if (target.isBefore(today) || target.isEqual(today.minusDays(1))) {
-                        target = try {
-                            val nextYearResult = LunarCalendarHelper.lunarToSolar(today.year + 1, lunarMonth, lunarDay)
-                            LocalDate.parse(nextYearResult)
-                        } catch (e: Exception) {
-                            Log.w("EventItem", "明年农历转换失败: $eventDate", e)
-                            target.plusYears(1)
+                android.util.Log.d("EventItem", "Processing lunar date: $lunarDatePart")
+                
+                when {
+                    lunarDatePart.contains("-L") -> {
+                        // 正确的闰月格式：2025-L06-10
+                        val parts = lunarDatePart.split("-")
+                        if (parts.size >= 3) {
+                            val year = parts[0].toInt()
+                            val monthPart = parts[1] // L06
+                            val lunarDay = parts[2].toInt()
+                            val actualMonth = monthPart.substring(1).toInt()
+                            
+                            android.util.Log.d("EventItem", "闰月倒计时计算: year=$year, month=$actualMonth, day=$lunarDay, isLeap=true")
+                            val result = LunarCalendarHelper.calculateLunarCountdown(
+                                year, actualMonth, lunarDay, true, today
+                            )
+                            android.util.Log.d("EventItem", "闰月倒计时结果: $result 天")
+                            result
+                        } else {
+                            1L
                         }
                     }
-                    target
-                } else {
-                    today.plusDays(1) // 默认明天
+                    lunarDatePart.contains("--") -> {
+                        // 错误的闰月格式：2025--6-10
+                        val corrected = lunarDatePart.replace("--", "-")
+                        val parts = corrected.split("-")
+                        if (parts.size >= 3) {
+                            val year = parts[0].toInt()
+                            val lunarMonth = parts[1].toInt()
+                            val lunarDay = parts[2].toInt()
+                            
+                            LunarCalendarHelper.calculateLunarCountdown(
+                                year, lunarMonth, lunarDay, true, today
+                            )
+                        } else {
+                            1L
+                        }
+                    }
+                    else -> {
+                        // 正常农历格式：2025-08-10
+                        val parts = lunarDatePart.split("-")
+                        if (parts.size >= 3) {
+                            val year = parts[0].toInt()
+                            val lunarMonth = parts[1].toInt()
+                            val lunarDay = parts[2].toInt()
+                            
+                            android.util.Log.d("EventItem", "普通农历倒计时计算: year=$year, month=$lunarMonth, day=$lunarDay, isLeap=false")
+                            val result = LunarCalendarHelper.calculateLunarCountdown(
+                                year, lunarMonth, lunarDay, false, today
+                            )
+                            android.util.Log.d("EventItem", "普通农历倒计时结果: $result 天")
+                            result
+                        } else {
+                            1L
+                        }
+                    }
                 }
             }
             isMonthDayFormat -> {
@@ -385,9 +451,9 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                     if (target.isBefore(today)) {
                         target = target.plusYears(1)
                     }
-                    target
+                    ChronoUnit.DAYS.between(today, target)
                 } else {
-                    today.plusDays(1) // 默认明天
+                    1L // 默认明天
                 }
             }
             else -> {
@@ -401,45 +467,27 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                     if (target.isBefore(today)) {
                         target = target.plusYears(1)
                     }
-                    target
+                    ChronoUnit.DAYS.between(today, target)
                 } else {
-                    today.plusDays(1) // 默认明天
+                    1L // 默认明天
                 }
             }
         }
-
-        val daysBetween = ChronoUnit.DAYS.between(today, targetDate)
+        
+        android.util.Log.d("EventItem", "Calculated days between: $daysBetween for event: $eventDate")
         
         when {
             daysBetween == 0L -> "就是今天" to 0L
             daysBetween == 1L -> "明天" to 1L
             daysBetween == -1L -> "昨天" to -1L
             daysBetween > 0 -> {
-                if (daysBetween >= 365) {
-                    val years = daysBetween / 365
-                    val remainingDays = daysBetween % 365
-                    if (remainingDays == 0L) {
-                        "${years}年后" to daysBetween
-                    } else {
-                        "${years}年${remainingDays}天后" to daysBetween
-                    }
-                } else {
-                    "还有${daysBetween}天" to daysBetween
-                }
+                // 直接显示具体天数，不显示“年后”
+                "还有${daysBetween}天" to daysBetween
             }
             else -> {
                 val absDays = kotlin.math.abs(daysBetween)
-                if (absDays >= 365) {
-                    val years = absDays / 365
-                    val remainingDays = absDays % 365
-                    if (remainingDays == 0L) {
-                        "${years}年前" to daysBetween
-                    } else {
-                        "${years}年${remainingDays}天前" to daysBetween
-                    }
-                } else {
-                    "${absDays}天前" to daysBetween
-                }
+                // 直接显示具体天数，不显示“年前”
+                "${absDays}天前" to daysBetween
             }
         }
     } catch (e: Exception) {

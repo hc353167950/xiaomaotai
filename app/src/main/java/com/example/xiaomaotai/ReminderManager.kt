@@ -205,8 +205,16 @@ class ReminderManager(private val context: Context) {
                     val lunarDatePart = eventDate.removePrefix("lunar:")
                     val parts = lunarDatePart.split("-")
                     if (parts.size >= 3) {
-                        val lunarMonth = parts[1].toInt()
+                        val monthPart = parts[1]
                         val lunarDay = parts[2].toInt()
+                        
+                        // 检查是否为闰月（格式：L06 表示闰六月）
+                        val (lunarMonth, isLeap) = if (monthPart.startsWith("L")) {
+                            val actualMonth = monthPart.substring(1).toInt()
+                            Pair(actualMonth, true)
+                        } else {
+                            Pair(monthPart.toInt(), false)
+                        }
                         
                         // 使用LunarCalendarHelper转换农历到公历
                         val today = Calendar.getInstance()
@@ -215,7 +223,7 @@ class ReminderManager(private val context: Context) {
                         // 先尝试当年的农历日期
                         var targetDate: Date = try {
                             // LunarCalendarHelper.lunarToSolar返回LocalDate，需要转换为Date
-                            val localDate = LunarCalendarHelper.lunarToSolar(currentYear, lunarMonth, lunarDay)
+                            val localDate = LunarCalendarHelper.lunarToSolar(currentYear, lunarMonth, lunarDay, isLeap)
                             java.sql.Date.valueOf(localDate)
                         } catch (e: Exception) {
                             // 如果转换失败，使用近似计算
@@ -229,7 +237,7 @@ class ReminderManager(private val context: Context) {
                         targetCal.time = targetDate
                         if (targetCal.before(today) || isSameDay(targetCal, today)) {
                             targetDate = try {
-                                val localDate = LunarCalendarHelper.lunarToSolar(currentYear + 1, lunarMonth, lunarDay)
+                                val localDate = LunarCalendarHelper.lunarToSolar(currentYear + 1, lunarMonth, lunarDay, isLeap)
                                 java.sql.Date.valueOf(localDate)
                             } catch (e: Exception) {
                                 val cal = Calendar.getInstance()

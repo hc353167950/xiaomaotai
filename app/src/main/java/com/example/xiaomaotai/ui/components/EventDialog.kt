@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.xiaomaotai.DataManager
 import com.example.xiaomaotai.Event
+import com.example.xiaomaotai.LunarCalendarHelper
 import com.example.xiaomaotai.ValidationUtils
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -51,8 +52,44 @@ fun EventDialog(
             try {
                 val dateToParse = when {
                     event.eventDate.startsWith("lunar:") -> {
-                        // 农历日期：lunar:2025-08-10 -> 2025-08-10
-                        event.eventDate.removePrefix("lunar:")
+                        // 农历日期：lunar:2025-08-10 或 lunar:2025-L06-10 或 lunar:2025--6-10
+                        val lunarPart = event.eventDate.removePrefix("lunar:")
+                        android.util.Log.d("EventDialog", "Parsing lunar date: $lunarPart")
+                        
+                        when {
+                            lunarPart.contains("-L") -> {
+                                // 正确的闰月格式：2025-L06-10
+                                val parts = lunarPart.split("-")
+                                if (parts.size >= 3) {
+                                    val year = parts[0]
+                                    val monthPart = parts[1] // L06
+                                    val day = parts[2]
+                                    val actualMonth = monthPart.substring(1) // 06
+                                    android.util.Log.d("EventDialog", "Correct leap month format: year=$year, month=$actualMonth, day=$day")
+                                    "$year-$actualMonth-$day"
+                                } else {
+                                    lunarPart
+                                }
+                            }
+                            lunarPart.contains("--") -> {
+                                // 错误的闰月格式：2025--6-10
+                                val corrected = lunarPart.replace("--", "-")
+                                val parts = corrected.split("-")
+                                if (parts.size >= 3) {
+                                    val year = parts[0]
+                                    val month = parts[1] // 6
+                                    val day = parts[2]
+                                    android.util.Log.d("EventDialog", "Incorrect leap month format corrected: year=$year, month=$month, day=$day")
+                                    "$year-$month-$day"
+                                } else {
+                                    corrected
+                                }
+                            }
+                            else -> {
+                                // 正常农历格式：2025-08-10
+                                lunarPart
+                            }
+                        }
                     }
                     event.eventDate.matches(Regex("\\d{2}-\\d{2}")) -> {
                         // 忽略年份：08-10 -> 2025-08-10（使用当前年份）
@@ -76,9 +113,50 @@ fun EventDialog(
         cal
     }
 
-    var selectedYear by remember { mutableStateOf(initialCalendar.get(Calendar.YEAR)) }
-    var selectedMonth by remember { mutableStateOf(initialCalendar.get(Calendar.MONTH) + 1) }
-    var selectedDay by remember { mutableStateOf(initialCalendar.get(Calendar.DAY_OF_MONTH)) }
+    // 初始化日期选择器的值，特别处理闰月
+    val (initYear, initMonth, initDay) = remember {
+        if (event?.eventDate?.startsWith("lunar:") == true) {
+            val lunarPart = event.eventDate.removePrefix("lunar:")
+            when {
+                lunarPart.contains("-L") -> {
+                    // 正确的闰月格式：2025-L06-10
+                    val parts = lunarPart.split("-")
+                    if (parts.size >= 3) {
+                        val year = parts[0].toIntOrNull() ?: initialCalendar.get(Calendar.YEAR)
+                        val monthPart = parts[1] // L06
+                        val day = parts[2].toIntOrNull() ?: initialCalendar.get(Calendar.DAY_OF_MONTH)
+                        val actualMonth = monthPart.substring(1).toIntOrNull() ?: 1
+                        Triple(year, -actualMonth, day) // 闰月使用负数
+                    } else {
+                        Triple(initialCalendar.get(Calendar.YEAR), initialCalendar.get(Calendar.MONTH) + 1, initialCalendar.get(Calendar.DAY_OF_MONTH))
+                    }
+                }
+                lunarPart.contains("--") -> {
+                    // 错误的闰月格式：2025--6-10
+                    val corrected = lunarPart.replace("--", "-")
+                    val parts = corrected.split("-")
+                    if (parts.size >= 3) {
+                        val year = parts[0].toIntOrNull() ?: initialCalendar.get(Calendar.YEAR)
+                        val month = parts[1].toIntOrNull() ?: 1
+                        val day = parts[2].toIntOrNull() ?: initialCalendar.get(Calendar.DAY_OF_MONTH)
+                        Triple(year, -month, day) // 闰月使用负数
+                    } else {
+                        Triple(initialCalendar.get(Calendar.YEAR), initialCalendar.get(Calendar.MONTH) + 1, initialCalendar.get(Calendar.DAY_OF_MONTH))
+                    }
+                }
+                else -> {
+                    // 正常农历格式
+                    Triple(initialCalendar.get(Calendar.YEAR), initialCalendar.get(Calendar.MONTH) + 1, initialCalendar.get(Calendar.DAY_OF_MONTH))
+                }
+            }
+        } else {
+            Triple(initialCalendar.get(Calendar.YEAR), initialCalendar.get(Calendar.MONTH) + 1, initialCalendar.get(Calendar.DAY_OF_MONTH))
+        }
+    }
+    
+    var selectedYear by remember { mutableStateOf(initYear) }
+    var selectedMonth by remember { mutableStateOf(initMonth) }
+    var selectedDay by remember { mutableStateOf(initDay) }
     
     // 手势返回处理
     BackHandler {
@@ -280,7 +358,17 @@ fun EventDialog(
                         
                         // 确保使用最新的eventDate格式
                         val finalEventDate = when (selectedTab) {
-                            1 -> "lunar:${String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)}" // 农历格式
+                            1 -> {
+                                // 农历格式，检查是否为闰月
+                                if (selectedMonth < 0) {
+                                    // 负数表示闰月
+                                    val actualMonth = -selectedMonth
+                                    "lunar:${selectedYear}-L${String.format("%02d", actualMonth)}-${String.format("%02d", selectedDay)}" // 闰月格式
+                                } else {
+                                    // 正数表示普通月份
+                                    "lunar:${String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)}" // 普通农历格式
+                                }
+                            }
                             2 -> String.format("%02d-%02d", selectedMonth, selectedDay) // 忽略年份格式
                             else -> String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay) // 公历格式
                         }
