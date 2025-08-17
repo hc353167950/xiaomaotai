@@ -100,6 +100,22 @@ class MainActivity : ComponentActivity() {
             Log.d("Permission", "Notification permission denied.")
         }
     }
+    
+    // 精确闹钟权限请求结果处理
+    private val exactAlarmPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val permissionManager = PermissionManager(this)
+        if (permissionManager.hasExactAlarmPermission()) {
+            Log.d("Permission", "Exact alarm permission granted after request.")
+        } else {
+            Log.d("Permission", "Exact alarm permission still not granted.")
+            // 如果标准方式失败，尝试vivo专用方式
+            if (permissionManager.isVivoDevice()) {
+                showVivoAlarmPermissionDialog()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -143,21 +159,50 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun checkExactAlarmPermission(permissionManager: PermissionManager) {
-        if (!permissionManager.hasExactAlarmPermission()) {
-            Log.d("Permission", "Exact alarm permission not granted, showing dialog.")
-            // 这里可以显示一个对话框提示用户授权精确闹钟权限
-            showExactAlarmPermissionDialog()
+        val hasPermission = permissionManager.hasExactAlarmPermission()
+        val androidVersion = Build.VERSION.SDK_INT
+        val deviceInfo = "${Build.MANUFACTURER} ${Build.MODEL}"
+        
+        Log.d("Permission", "=== 精确闹钟权限检查 ===")
+        Log.d("Permission", "Android版本: $androidVersion")
+        Log.d("Permission", "设备信息: $deviceInfo")
+        Log.d("Permission", "当前权限状态: $hasPermission")
+        
+        if (androidVersion >= Build.VERSION_CODES.S) {
+            if (!hasPermission) {
+                Log.d("Permission", "精确闹钟权限未授权，开始请求权限")
+                requestExactAlarmPermission(permissionManager)
+            } else {
+                Log.d("Permission", "精确闹钟权限已授权，但为了确保在系统列表中显示，仍然发起一次请求")
+                // 即使有权限，也发起一次请求确保在系统权限列表中显示
+                requestExactAlarmPermission(permissionManager)
+            }
+        } else {
+            Log.d("Permission", "Android 12以下，无需精确闹钟权限")
         }
     }
     
-    private fun showExactAlarmPermissionDialog() {
-        // 直接跳转到设置页面请求精确闹钟权限
-        val permissionManager = PermissionManager(this)
+    private fun requestExactAlarmPermission(permissionManager: PermissionManager) {
         try {
             val intent = permissionManager.getExactAlarmSettingsIntent()
-            startActivity(intent)
+            exactAlarmPermissionLauncher.launch(intent)
         } catch (e: Exception) {
             Log.e("Permission", "无法打开精确闹钟设置页面: ${e.message}")
+            // 如果是vivo设备，尝试专用方式
+            if (permissionManager.isVivoDevice()) {
+                showVivoAlarmPermissionDialog()
+            }
+        }
+    }
+    
+    private fun showVivoAlarmPermissionDialog() {
+        // vivo设备专用的权限请求方式
+        val permissionManager = PermissionManager(this)
+        try {
+            val intent = permissionManager.getVivoAlarmSettingsIntent()
+            exactAlarmPermissionLauncher.launch(intent)
+        } catch (e: Exception) {
+            Log.e("Permission", "无法打开vivo权限设置页面: ${e.message}")
         }
     }
 }

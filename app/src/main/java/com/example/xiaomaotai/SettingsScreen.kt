@@ -2,6 +2,10 @@ package com.example.xiaomaotai
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -146,7 +150,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
         
-        // 精确闹钟权限设置
+        // 精确闹钟权限设置 - 针对vivo优化
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -154,41 +158,158 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable {
-                        if (!permissionSummary.hasExactAlarm) {
-                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                            context.startActivity(intent)
-                        }
-                    }
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(12.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "精确闹钟权限",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (permissionSummary.hasExactAlarm) "已开启" else "未开启，点击设置",
-                        fontSize = 13.sp,
-                        color = if (permissionSummary.hasExactAlarm) 
-                            Color(0xFF4CAF50) 
-                        else 
-                            Color(0xFFF44336)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "精确闹钟权限",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (permissionSummary.hasExactAlarm) "已开启" else "未开启，需要手动设置",
+                            fontSize = 13.sp,
+                            color = if (permissionSummary.hasExactAlarm) 
+                                Color(0xFF4CAF50) 
+                            else 
+                                Color(0xFFF44336)
+                        )
+                    }
+                    
+                    Switch(
+                        checked = permissionSummary.hasExactAlarm,
+                        onCheckedChange = { },
+                        enabled = false
                     )
                 }
                 
-                Switch(
-                    checked = permissionSummary.hasExactAlarm,
-                    onCheckedChange = { },
-                    enabled = false
-                )
+                // 如果权限未开启，显示多个设置选项
+                if (!permissionSummary.hasExactAlarm) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // 检测设备制造商
+                    val isChineseDevice = permissionManager.isChineseDevice()
+                    val vendorName = permissionManager.getDeviceVendorName()
+                    
+                    if (isChineseDevice) {
+                        Text(
+                            text = "检测到${vendorName}设备，请尝试以下方式设置权限：",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        
+                        Text(
+                            text = "ℹ️ 提示：不同版本路径可能有差异，建议优先尝试搜索功能",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    
+                    // 标准权限设置按钮
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = permissionManager.getExactAlarmSettingsIntent()
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // 如果标准方式失败，尝试应用详情页
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("标准权限设置")
+                    }
+                    
+                    // 国产设备专用设置按钮
+                    if (isChineseDevice) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = permissionManager.getVendorSpecificAlarmSettingsIntent()
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // 备选方案
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("${vendorName}权限管理")
+                        }
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = permissionManager.getSystemAlarmSettingsIntent()
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    val intent = Intent(Settings.ACTION_SETTINGS)
+                                    context.startActivity(intent)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("系统设置")
+                        }
+                        
+                        // 国产设备的详细说明
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val deviceInstructions = when {
+                            permissionManager.isVivoDevice() -> 
+                                "vivo/iQOO设备通用方法：\n1. 设置 → 应用与权限 → 权限管理 → 闹钟 → 添加小茅台\n2. 或在设置中直接搜索\"闹钟权限\""
+                            permissionManager.isXiaomiDevice() -> 
+                                "小米/红米设备通用方法：\n1. 设置 → 应用设置 → 应用权限 → 闹钟 → 添加小茅台\n2. 或在MIUI设置中搜索\"闹钟权限\""
+                            permissionManager.isOppoDevice() -> 
+                                "OPPO/一加设备通用方法：\n1. 设置 → 应用管理 → 应用权限 → 闹钟 → 添加小茅台\n2. 或在ColorOS设置中搜索\"闹钟\""
+                            permissionManager.isHuaweiDevice() -> 
+                                "华为/荣耀设备通用方法：\n1. 设置 → 应用和服务 → 权限管理 → 闹钟 → 添加小茅台\n2. 或在HarmonyOS/EMUI设置中搜索\"闹钟权限\""
+                            else -> 
+                                "国产设备通用方法：\n1. 在系统设置中搜索\"闹钟权限\"或\"应用权限\"\n2. 或在\"手机管家\"、\"安全中心\"中找权限管理"
+                        }
+                        
+                        Text(
+                            text = deviceInstructions,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            lineHeight = 14.sp
+                        )
+                        
+                        // 通用备选方案
+                        val isChineseDevice = permissionManager.isVivoDevice() || 
+                                            permissionManager.isXiaomiDevice() || 
+                                            permissionManager.isOppoDevice() || 
+                                            permissionManager.isHuaweiDevice()
+                        if (isChineseDevice) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "💡 如果以上路径找不到，请在设置中直接搜索“闹钟”或“权限”关键词",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.secondary,
+                                lineHeight = 12.sp
+                            )
+                        }
+                    }
+                }
             }
         }
         
