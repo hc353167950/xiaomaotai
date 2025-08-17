@@ -6,12 +6,19 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.*
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 
 /**
  * 提醒管理器
@@ -31,6 +38,8 @@ class ReminderManager(private val context: Context) {
     init {
         createNotificationChannel()
         cleanupOldReminderHistory()
+        // 启动WorkManager周期性检查任务
+        initializeWorkManagerTasks()
     }
 
     private fun createNotificationChannel() {
@@ -55,6 +64,7 @@ class ReminderManager(private val context: Context) {
     /**
      * 设置事件提醒 - 支持7天前、1天前、当天的多重提醒
      * 支持未登录用户，支持APP被杀死后提醒
+     * 增强版：使用多重保障机制（AlarmManager + WorkManager + 前台服务）
      */
     fun scheduleReminder(event: Event) {
         try {
@@ -188,6 +198,9 @@ class ReminderManager(private val context: Context) {
                 }
             }
             
+            // 增强功能：检查是否需要启动前台服务（24小时内的提醒）
+            checkAndStartForegroundService(event, eventCalendar)
+            
         } catch (e: Exception) {
             Log.e("ReminderManager", "设置提醒失败: ${e.message}")
         }
@@ -245,7 +258,7 @@ class ReminderManager(private val context: Context) {
      * 获取下次提醒日期
      * 支持公历、农历和忽略年份格式
      */
-    private fun getNextReminderDate(eventDate: String): Date? {
+    fun getNextReminderDate(eventDate: String): Date? {
         return try {
             when {
                 // 农历事件
@@ -264,34 +277,31 @@ class ReminderManager(private val context: Context) {
                             Pair(monthPart.toInt(), false)
                         }
                         
-                        // 使用LunarCalendarHelper转换农历到公历
+                        // 使用统一的农历倒计时计算逻辑（与EventItem保持一致）
                         val today = Calendar.getInstance()
+                        val currentDate = LocalDate.now()
                         val currentYear = today.get(Calendar.YEAR)
                         
-                        // 先尝试当年的农历日期
-                        var targetDate: Date = try {
-                            // LunarCalendarHelper.lunarToSolar返回LocalDate，需要转换为Date
-                            val localDate = LunarCalendarHelper.lunarToSolar(currentYear, lunarMonth, lunarDay, isLeap)
-                            java.sql.Date.valueOf(localDate)
-                        } catch (e: Exception) {
-                            // 如果转换失败，使用近似计算
-                            val cal = Calendar.getInstance()
-                            cal.set(currentYear, lunarMonth - 1, lunarDay.coerceIn(1, 28))
-                            cal.time
-                        }
+                        Log.d("ReminderManager", "🔍 农历提醒计算: ${lunarMonth}月${lunarDay}日(闰月:$isLeap), 当前日期: $currentDate")
                         
-                        // 如果今年的农历日期已过，计算明年的
-                        val targetCal = Calendar.getInstance()
-                        targetCal.time = targetDate
-                        if (targetCal.before(today) || isSameDay(targetCal, today)) {
-                            targetDate = try {
-                                val localDate = LunarCalendarHelper.lunarToSolar(currentYear + 1, lunarMonth, lunarDay, isLeap)
-                                java.sql.Date.valueOf(localDate)
-                            } catch (e: Exception) {
-                                val cal = Calendar.getInstance()
-                                cal.set(currentYear + 1, lunarMonth - 1, lunarDay.coerceIn(1, 28))
-                                cal.time
-                            }
+                        // 使用LunarCalendarHelper的统一农历倒计时计算
+                        val daysUntilEvent = LunarCalendarHelper.calculateLunarCountdown(
+                            currentYear, lunarMonth, lunarDay, isLeap, currentDate
+                        )
+                        
+                        Log.d("ReminderManager", "🔍 农历倒计时结果: ${daysUntilEvent}天")
+                        
+                        // 根据倒计时天数计算目标日期
+                        val targetDate: Date = if (daysUntilEvent == 0L) {
+                            // 今天就是事件日期
+                            Log.d("ReminderManager", "✅ 农历事件就是今天")
+                            today.time
+                        } else {
+                            // 计算未来的事件日期
+                            val targetCal = Calendar.getInstance()
+                            targetCal.add(Calendar.DAY_OF_YEAR, daysUntilEvent.toInt())
+                            Log.d("ReminderManager", "✅ 农历事件在${daysUntilEvent}天后: ${targetCal.time}")
+                            targetCal.time
                         }
                         
                         targetDate
@@ -473,7 +483,7 @@ class ReminderManager(private val context: Context) {
     /**
      * 检查今天是否已经为某个事件的特定提醒类型发送过通知
      */
-    private fun hasReminderSentToday(eventId: String, daysRemaining: Int): Boolean {
+    fun hasReminderSentToday(eventId: String, daysRemaining: Int): Boolean {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val reminderKey = "${eventId}_${daysRemaining}_$today"
         return sharedPreferences.getBoolean(reminderKey, false)
@@ -492,7 +502,7 @@ class ReminderManager(private val context: Context) {
     /**
      * 清理过期的提醒历史记录（保留最近7天的记录）
      */
-    private fun cleanupOldReminderHistory() {
+    fun cleanupOldReminderHistory() {
         try {
             val sevenDaysAgo = Calendar.getInstance().apply {
                 add(Calendar.DAY_OF_YEAR, -7)
@@ -552,6 +562,93 @@ class ReminderManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e("ReminderManager", "发送立即测试通知失败: ${e.message}")
             e.printStackTrace()
+        }
+    }
+    
+    /**
+     * 初始化WorkManager周期性任务
+     * 每30分钟检查一次提醒状态，确保不会遗漏
+     */
+    private fun initializeWorkManagerTasks() {
+        try {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.NOT_REQUIRED) // 不需要网络
+                .setRequiresBatteryNotLow(false) // 低电量时也要工作
+                .setRequiresCharging(false) // 不需要充电
+                .setRequiresDeviceIdle(false) // 设备使用时也要工作
+                .build()
+            
+            val reminderWorkRequest = PeriodicWorkRequestBuilder<ReminderWorker>(
+                30, TimeUnit.MINUTES // 每30分钟执行一次
+            )
+                .setConstraints(constraints)
+                .addTag("reminder_check")
+                .build()
+            
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                ReminderWorker.WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP, // 如果已存在则保持现有任务
+                reminderWorkRequest
+            )
+            
+            Log.d("ReminderManager", "WorkManager周期性任务已启动，每30分钟检查一次")
+            
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "启动WorkManager任务失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 检查是否需要启动前台服务
+     * 只在有24小时内的提醒时启动前台服务
+     */
+    private fun checkAndStartForegroundService(event: Event, eventCalendar: Calendar) {
+        try {
+            // 只在Android 8.0+上启动前台服务
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                return
+            }
+            
+            val now = Calendar.getInstance()
+            val twentyFourHoursLater = Calendar.getInstance().apply {
+                add(Calendar.HOUR_OF_DAY, 24)
+            }
+            
+            // 检查事件是否在24小时内
+            val reminderDays = listOf(7, 1, 0)
+            val hasUpcomingReminder = reminderDays.any { daysBefore ->
+                val reminderCalendar = eventCalendar.clone() as Calendar
+                reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
+                
+                reminderCalendar.timeInMillis in now.timeInMillis..twentyFourHoursLater.timeInMillis
+            }
+            
+            if (hasUpcomingReminder) {
+                Log.d("ReminderManager", "发现24小时内的提醒，启动前台服务: ${event.eventName}")
+                ReminderForegroundService.startService(context)
+            }
+            
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "检查前台服务状态失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 停止所有增强功能
+     * 用于清理资源或用户禁用功能时调用
+     */
+    fun stopEnhancedFeatures() {
+        try {
+            // 停止WorkManager任务
+            WorkManager.getInstance(context).cancelUniqueWork(ReminderWorker.WORK_NAME)
+            
+            // 停止前台服务
+            ReminderForegroundService.stopService(context)
+            
+            Log.d("ReminderManager", "已停止所有增强功能")
+            
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "停止增强功能失败: ${e.message}")
         }
     }
 
