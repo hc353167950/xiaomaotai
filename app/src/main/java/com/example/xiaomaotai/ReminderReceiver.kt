@@ -56,6 +56,24 @@ class ReminderReceiver : BroadcastReceiver() {
         // 确保通知渠道存在
         val reminderManager = ReminderManager(context)
         
+        // 在Android 8.0+上必须先创建通知渠道
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                ReminderManager.CHANNEL_ID,
+                "纪念日提醒",
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "纪念日提醒通知"
+                enableVibration(true)
+                enableLights(true)
+                setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI, null)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
+            }
+            notificationManager.createNotificationChannel(channel)
+            android.util.Log.d("ReminderReceiver", "通知渠道已创建")
+        }
+        
         // 根据剩余天数生成不同的通知内容
         val (title, content) = when (daysRemaining) {
             7 -> "纪念日提醒" to "还有7天就是「$eventName」了，记得准备哦！"
@@ -100,6 +118,9 @@ class ReminderReceiver : BroadcastReceiver() {
             try {
                 android.util.Log.d("ReminderReceiver", "开机启动，开始重新设置提醒")
                 
+                // 延迟5秒等待系统完全启动
+                kotlinx.coroutines.delay(5000)
+                
                 val dataManager = DataManager(context)
                 val reminderManager = ReminderManager(context)
                 
@@ -107,6 +128,11 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (!reminderManager.canScheduleAlarms()) {
                     android.util.Log.w("ReminderReceiver", "没有精确闹钟权限，无法重新设置提醒")
                     return@launch
+                }
+                
+                // 检查电池优化状态
+                if (!reminderManager.isIgnoringBatteryOptimizations()) {
+                    android.util.Log.w("ReminderReceiver", "APP未加入电池优化白名单，提醒可能不稳定")
                 }
                 
                 // 获取所有事件（包括登录和未登录用户的事件）
@@ -124,21 +150,46 @@ class ReminderReceiver : BroadcastReceiver() {
                     android.util.Log.d("ReminderReceiver", "加载登录用户事件: ${localEvents.size}个")
                 }
                 
-                // 重新设置所有事件的提醒
+                if (allEvents.isEmpty()) {
+                    android.util.Log.d("ReminderReceiver", "没有需要设置提醒的事件")
+                    return@launch
+                }
+                
+                // 重新设置所有事件的提醒，添加重试机制
                 var successCount = 0
                 allEvents.forEach { event ->
-                    try {
-                        reminderManager.scheduleReminder(event)
-                        successCount++
-                    } catch (e: Exception) {
-                        android.util.Log.e("ReminderReceiver", "重新设置事件提醒失败: ${event.eventName}, ${e.message}")
+                    var retryCount = 0
+                    var success = false
+                    
+                    while (retryCount < 3 && !success) {
+                        try {
+                            reminderManager.scheduleReminder(event)
+                            successCount++
+                            success = true
+                            android.util.Log.d("ReminderReceiver", "成功设置提醒: ${event.eventName}")
+                        } catch (e: Exception) {
+                            retryCount++
+                            android.util.Log.w("ReminderReceiver", "设置事件提醒失败(重试${retryCount}/3): ${event.eventName}, ${e.message}")
+                            if (retryCount < 3) {
+                                kotlinx.coroutines.delay(1000) // 等待1秒后重试
+                            }
+                        }
                     }
                 }
                 
                 android.util.Log.d("ReminderReceiver", "开机后成功重新设置了${successCount}/${allEvents.size}个事件的提醒")
                 
+                // 记录开机重启恢复状态到SharedPreferences
+                val prefs = context.getSharedPreferences("boot_recovery", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putLong("last_boot_recovery", System.currentTimeMillis())
+                    .putInt("recovered_events", successCount)
+                    .putInt("total_events", allEvents.size)
+                    .apply()
+                
             } catch (e: Exception) {
                 android.util.Log.e("ReminderReceiver", "开机后重新设置提醒失败: ${e.message}")
+                e.printStackTrace()
             }
         }
     }

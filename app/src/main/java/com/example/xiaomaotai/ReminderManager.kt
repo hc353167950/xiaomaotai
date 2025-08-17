@@ -10,6 +10,8 @@ import java.util.*
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 
 /**
  * 提醒管理器
@@ -36,11 +38,17 @@ class ReminderManager(private val context: Context) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "纪念日提醒",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH // 提高重要性确保通知显示
             ).apply {
                 description = "纪念日提醒通知"
+                enableVibration(true) // 启用震动
+                enableLights(true) // 启用指示灯
+                setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI, null) // 设置默认声音
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC // 锁屏显示
+                setShowBadge(true) // 显示角标
             }
             notificationManager.createNotificationChannel(channel)
+            Log.d("ReminderManager", "通知渠道已创建，重要性级别: HIGH")
         }
     }
     
@@ -83,22 +91,56 @@ class ReminderManager(private val context: Context) {
                 val reminderCalendar = eventCalendar.clone() as Calendar
                 reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
                 
-                // 检查今天是否已经发送过这个提醒
-                if (daysBefore == 0 && hasReminderSentToday(event.id, daysBefore)) {
-                    Log.d("ReminderManager", "当天提醒已发送过，跳过: ${event.eventName}")
+                // 检查今天是否已经发送过这个提醒（防止所有类型的重复提醒）
+                if (hasReminderSentToday(event.id, daysBefore)) {
+                    Log.d("ReminderManager", "${reminderLabels[index]}提醒已发送过，跳过: ${event.eventName}")
                     return@forEachIndexed
                 }
                 
-                // 特殊处理当天事件：如果是当天且时间已过，立即触发通知
-                if (daysBefore == 0 && isSameDay(reminderCalendar, now)) {
-                    if (reminderCalendar.timeInMillis <= now.timeInMillis) {
-                        // 设置为30秒后提醒（立即提醒）
-                        reminderCalendar.timeInMillis = now.timeInMillis + 30 * 1000
-                        Log.d("ReminderManager", "当天事件时间已过，设置立即提醒: ${event.eventName}")
-                    }
+                // 精确的立即提醒逻辑：只对特定情况下的提醒进行立即处理
+                val isReminderTimePassed = reminderCalendar.timeInMillis <= now.timeInMillis
+                
+                // 修复天数计算精度问题：使用日期比较而不是时间比较
+                val eventDateOnly = Calendar.getInstance().apply {
+                    time = eventCalendar.time
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val nowDateOnly = Calendar.getInstance().apply {
+                    time = now.time
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val daysBetweenEventAndNow = ((eventDateOnly.timeInMillis - nowDateOnly.timeInMillis) / (24 * 60 * 60 * 1000)).toInt()
+                
+                // 调试日志：检查天数计算
+                Log.d("ReminderManager", "🔍 天数计算调试: ${event.eventName}, eventCalendar: ${eventCalendar.time} (${eventCalendar.timeInMillis}), now: ${now.time} (${now.timeInMillis}), daysBetweenEventAndNow: $daysBetweenEventAndNow, daysBefore: $daysBefore")
+                Log.d("ReminderManager", "🔍 日期比较: 事件日期: ${eventDateOnly.time}, 今天日期: ${nowDateOnly.time}")
+                
+                // 只对符合条件的情况进行立即提醒：
+                // 1. 当天事件（daysBefore=0 && daysBetweenEventAndNow=0）
+                // 2. 明天事件今天创建（daysBefore=1 && daysBetweenEventAndNow=1）
+                // 3. 7天后事件今天创建（daysBefore=7 && daysBetweenEventAndNow=7）
+                val shouldImmediateRemind = isReminderTimePassed && 
+                    ((daysBefore == 0 && daysBetweenEventAndNow == 0) ||  // 当天事件
+                     (daysBefore == 1 && daysBetweenEventAndNow == 1) ||  // 明天事件
+                     (daysBefore == 7 && daysBetweenEventAndNow == 7))    // 7天后事件
+                
+                Log.d("ReminderManager", "检查提醒时间: ${event.eventName}, 提醒类型: ${reminderLabels[index]} (daysBefore=$daysBefore), 提醒时间: ${reminderCalendar.time}, 当前时间: ${now.time}, 时间已过: $isReminderTimePassed, 事件距离天数: $daysBetweenEventAndNow, 需要立即提醒: $shouldImmediateRemind")
+                
+                if (shouldImmediateRemind) {
+                    // 符合条件的提醒时间已过，设置30秒后立即提醒
+                    reminderCalendar.timeInMillis = now.timeInMillis + 30 * 1000
+                    Log.d("ReminderManager", "⚙️ 精确立即提醒: ${event.eventName} (${reminderLabels[index]}), 符合条件且原时间已过，设置30秒后提醒，新提醒时间: ${reminderCalendar.time}")
                 }
                 
                 // 设置未来的提醒或当天的立即提醒
+                Log.d("ReminderManager", "检查是否需要设置提醒: ${event.eventName}, 提醒时间: ${reminderCalendar.time} (${reminderCalendar.timeInMillis}), 当前时间: ${now.time} (${now.timeInMillis}), 时间差: ${(reminderCalendar.timeInMillis - now.timeInMillis) / 1000}秒")
+                
                 if (reminderCalendar.timeInMillis > now.timeInMillis) {
                     val intent = Intent(context, ReminderReceiver::class.java).apply {
                         action = "com.example.xiaomaotai.REMINDER"
@@ -113,7 +155,11 @@ class ReminderManager(private val context: Context) {
                         context,
                         "${event.id}_$daysBefore".hashCode(), // 每个提醒使用不同的ID
                         intent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        } else {
+                            PendingIntent.FLAG_UPDATE_CURRENT
+                        }
                     )
                     
                     // 设置精确闹钟 - 确保APP被杀死后也能提醒
@@ -133,9 +179,11 @@ class ReminderManager(private val context: Context) {
                                 pendingIntent
                             )
                         }
-                        Log.d("ReminderManager", "已设置${reminderLabels[index]}提醒: ${event.eventName} at ${reminderCalendar.time}")
+                        Log.d("ReminderManager", "✅ 已成功设置${reminderLabels[index]}提醒: ${event.eventName} at ${reminderCalendar.time}, PendingIntent ID: ${"${event.id}_$daysBefore".hashCode()}")
                     } catch (e: SecurityException) {
-                        Log.e("ReminderManager", "设置精确闹钟权限被拒绝: ${e.message}")
+                        Log.e("ReminderManager", "❌ 设置精确闹钟权限被拒绝: ${e.message}")
+                    } catch (e: Exception) {
+                        Log.e("ReminderManager", "❌ 设置闹钟失败: ${e.message}", e)
                     }
                 }
             }
@@ -261,11 +309,27 @@ class ReminderManager(private val context: Context) {
                         eventCal.time = it
                         eventCal.set(Calendar.YEAR, currentYear)
                         
-                        // 如果今年的日期已经过了，设置为明年
                         val today = Calendar.getInstance()
-                        if (eventCal.before(today) || isSameDay(eventCal, today)) {
+                        
+                        // 比较日期而不是具体时间，避免当天事件被错误判断
+                        val eventDayOfYear = eventCal.get(Calendar.DAY_OF_YEAR)
+                        val todayDayOfYear = today.get(Calendar.DAY_OF_YEAR)
+                        val eventYear = eventCal.get(Calendar.YEAR)
+                        val todayYear = today.get(Calendar.YEAR)
+                        
+                        val isEventDatePassed = (eventYear < todayYear) || 
+                                               (eventYear == todayYear && eventDayOfYear < todayDayOfYear)
+                        
+                        Log.d("ReminderManager", "📅 忽略年份解析 - 当前年: $currentYear, 事件日期: ${eventCal.time}, 今天: ${today.time}")
+                        Log.d("ReminderManager", "📅 日期比较 - 事件天数: $eventDayOfYear, 今天天数: $todayDayOfYear, 日期已过: $isEventDatePassed")
+                        
+                        // 只有日期真正过去了才设置为明年（不包括当天）
+                        if (isEventDatePassed) {
                             eventCal.add(Calendar.YEAR, 1)
+                            Log.d("ReminderManager", "📅 日期已过，设置为明年: ${eventCal.time}")
                         }
+                        
+                        Log.d("ReminderManager", "📅 忽略年份最终结果: ${eventCal.time}")
                         eventCal.time
                     }
                 }
@@ -314,9 +378,18 @@ class ReminderManager(private val context: Context) {
                     eventCal.time = it
                     eventCal.set(Calendar.YEAR, currentYear)
                     
-                    // 如果今年的日期已经过了，设置为明年
+                    // 比较日期而不是具体时间，避免当天事件被错误判断
                     val today = Calendar.getInstance()
-                    if (eventCal.before(today) || eventCal.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)) {
+                    val eventDayOfYear = eventCal.get(Calendar.DAY_OF_YEAR)
+                    val todayDayOfYear = today.get(Calendar.DAY_OF_YEAR)
+                    val eventYear = eventCal.get(Calendar.YEAR)
+                    val todayYear = today.get(Calendar.YEAR)
+                    
+                    val isEventDatePassed = (eventYear < todayYear) || 
+                                           (eventYear == todayYear && eventDayOfYear < todayDayOfYear)
+                    
+                    // 只有日期真正过去了才设置为明年（不包括当天）
+                    if (isEventDatePassed) {
                         eventCal.add(Calendar.YEAR, 1)
                     }
                     eventCal.time
@@ -340,6 +413,61 @@ class ReminderManager(private val context: Context) {
         } else {
             true // Android 12以下版本默认有权限
         }
+    }
+    
+    /**
+     * 检查是否在电池优化白名单中
+     */
+    fun isIgnoringBatteryOptimizations(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        } else {
+            true // Android 6.0以下版本没有电池优化
+        }
+    }
+    
+    /**
+     * 获取请求电池优化白名单的Intent
+     */
+    fun getBatteryOptimizationIntent(): Intent? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = android.net.Uri.parse("package:${context.packageName}")
+            }
+        } else {
+            null
+        }
+    }
+    
+    /**
+     * 检查通知系统的完整状态
+     */
+    fun checkNotificationSystemStatus(): NotificationSystemStatus {
+        val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == 
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true // Android 13以下默认有通知权限
+        }
+        
+        return NotificationSystemStatus(
+            hasNotificationPermission = hasNotificationPermission,
+            canScheduleExactAlarms = canScheduleAlarms(),
+            isIgnoringBatteryOptimizations = isIgnoringBatteryOptimizations()
+        )
+    }
+    
+    /**
+     * 通知系统状态数据类
+     */
+    data class NotificationSystemStatus(
+        val hasNotificationPermission: Boolean,
+        val canScheduleExactAlarms: Boolean,
+        val isIgnoringBatteryOptimizations: Boolean
+    ) {
+        val isFullyConfigured: Boolean
+            get() = hasNotificationPermission && canScheduleExactAlarms && isIgnoringBatteryOptimizations
     }
     
     /**
@@ -395,88 +523,37 @@ class ReminderManager(private val context: Context) {
     }
     
     /**
-     * 测试通知功能 - 立即发送一个测试通知
+     * 发送立即测试通知 - 用于调试通知系统
      */
-    fun sendTestNotification() {
+    fun sendImmediateTestNotification() {
         try {
             // 确保通知渠道存在
             createNotificationChannel()
             
-            val testIntent = Intent(context, ReminderReceiver::class.java).apply {
-                action = "com.example.xiaomaotai.REMINDER"
-                putExtra("event_id", "test_notification")
-                putExtra("event_name", "测试通知")
-                putExtra("event_date", "test")
-                putExtra("days_remaining", 0)
-                putExtra("reminder_label", "测试")
-            }
+            // 直接发送通知，不通过AlarmManager
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                "test_notification".hashCode(),
-                testIntent,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                } else {
-                    PendingIntent.FLAG_UPDATE_CURRENT
-                }
-            )
+            val notification = androidx.core.app.NotificationCompat.Builder(context, CHANNEL_ID)
+                .setContentTitle("测试通知")
+                .setContentText("如果你看到这条通知，说明通知系统工作正常")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                .setWhen(System.currentTimeMillis())
+                .setShowWhen(true)
+                .build()
             
-            // 设置5秒后触发测试通知
-            val testTime = System.currentTimeMillis() + 5000
+            val notificationId = "immediate_test".hashCode()
+            notificationManager.notify(notificationId, notification)
             
-            if (canScheduleAlarms()) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        testTime,
-                        pendingIntent
-                    )
-                } else {
-                    alarmManager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        testTime,
-                        pendingIntent
-                    )
-                }
-                Log.d("ReminderManager", "测试通知已设置，5秒后触发")
-            } else {
-                // 对于没有精确闹钟权限的情况，直接发送通知
-                Log.w("ReminderManager", "没有精确闹钟权限，直接发送测试通知")
-                sendDirectTestNotification()
-            }
+            Log.d("ReminderManager", "立即测试通知已发送，ID: $notificationId")
             
         } catch (e: Exception) {
-            Log.e("ReminderManager", "发送测试通知失败: ${e.message}")
+            Log.e("ReminderManager", "发送立即测试通知失败: ${e.message}")
+            e.printStackTrace()
         }
     }
-    
-    /**
-     * 直接发送测试通知 - 用于没有精确闹钟权限的情况
-     */
-    private fun sendDirectTestNotification() {
-        try {
-            // 确保通知渠道存在
-            createNotificationChannel()
-            
-            // 直接通过ReminderReceiver发送通知
-            val receiver = ReminderReceiver()
-            val testIntent = Intent(context, ReminderReceiver::class.java).apply {
-                action = "com.example.xiaomaotai.REMINDER"
-                putExtra("event_id", "test_notification_direct")
-                putExtra("event_name", "测试通知")
-                putExtra("event_date", "test")
-                putExtra("days_remaining", 0)
-                putExtra("reminder_label", "测试")
-            }
-            
-            // 直接调用onReceive方法
-            receiver.onReceive(context, testIntent)
-            Log.d("ReminderManager", "直接发送测试通知成功")
-            
-        } catch (e: Exception) {
-            Log.e("ReminderManager", "直接发送测试通知失败: ${e.message}")
-        }
-    }
+
 
 }
