@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,7 +72,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 16.dp)
-                .padding(bottom = 140.dp), // 为底部版本信息预留更多空间
+                .padding(bottom = 120.dp), // 为底部版本信息和导航栏预留足够空间
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
         // 简约顶部导航栏
@@ -145,7 +146,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
         
-        // 精确闹钟权限设置项
+        // 精确闹钟权限设置
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -153,50 +154,108 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            Column(
-                modifier = Modifier.padding(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = android.net.Uri.parse("package:${context.packageName}")
-                            }
-                            context.startActivity(intent)
-                        },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "精确闹钟权限",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (permissionSummary.hasExactAlarm) "已启用" else "已禁用",
-                            fontSize = 13.sp,
-                            color = if (permissionSummary.hasExactAlarm) 
-                                MaterialTheme.colorScheme.primary 
-                            else 
-                                MaterialTheme.colorScheme.error
-                        )
-                    }
-                    Switch(
-                        checked = permissionSummary.hasExactAlarm,
-                        onCheckedChange = { 
-                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = android.net.Uri.parse("package:${context.packageName}")
-                            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (!permissionSummary.hasExactAlarm) {
+                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                             context.startActivity(intent)
                         }
+                    }
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "精确闹钟权限",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (permissionSummary.hasExactAlarm) "已开启" else "未开启，点击设置",
+                        fontSize = 13.sp,
+                        color = if (permissionSummary.hasExactAlarm) 
+                            Color(0xFF4CAF50) 
+                        else 
+                            Color(0xFFF44336)
                     )
                 }
+                
+                Switch(
+                    checked = permissionSummary.hasExactAlarm,
+                    onCheckedChange = { },
+                    enabled = false
+                )
             }
         }
         
+        // 电池优化白名单设置
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (!permissionSummary.isIgnoringBatteryOptimization) {
+                            val permissionManager = PermissionManager(context)
+                            try {
+                                val intent = permissionManager.getBatteryOptimizationSettingsIntent()
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // 如果无法打开设置页面，尝试打开通用电池优化设置
+                                try {
+                                    val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(fallbackIntent)
+                                } catch (e2: Exception) {
+                                    // 最后的备用方案：打开应用设置页面
+                                    val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(appSettingsIntent)
+                                }
+                            }
+                        }
+                    }
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "电池优化白名单",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (permissionSummary.isIgnoringBatteryOptimization) 
+                            "已加入白名单" 
+                        else 
+                            "未加入，点击设置（重要）",
+                        fontSize = 13.sp,
+                        color = if (permissionSummary.isIgnoringBatteryOptimization) 
+                            Color(0xFF4CAF50) 
+                        else 
+                            Color(0xFFF44336)
+                    )
+                }
+                
+                Switch(
+                    checked = permissionSummary.isIgnoringBatteryOptimization,
+                    onCheckedChange = { },
+                    enabled = false
+                )
+            }
+        }
+
 
         
         // 提醒时间说明 - 重新设计为提示区域样式
@@ -264,7 +323,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
         
-        // 测试通知功能
+        // 通知测试功能
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -276,7 +335,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 modifier = Modifier.padding(12.dp)
             ) {
                 Text(
-                    text = "测试通知",
+                    text = "通知测试",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -284,7 +343,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 )
                 
                 Text(
-                    text = "点击下方按钮测试通知功能是否正常工作",
+                    text = "点击下方按钮立即发送测试通知",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     modifier = Modifier.padding(bottom = 10.dp)
@@ -293,7 +352,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 Button(
                     onClick = {
                         val reminderManager = ReminderManager(context)
-                        reminderManager.sendTestNotification()
+                        reminderManager.sendImmediateTestNotification()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
@@ -302,37 +361,28 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "发送测试通知（5秒后）",
+                        text = "立即发送",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
-                
-                Text(
-                    text = "如果5秒后没有收到通知，请检查通知权限和精确闹钟权限",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 6.dp)
-                )
             }
         }
-        } // 结束主要内容区域的Column
         
-        // 固定在底部的版本信息 - 动态适配
+        // 版本信息 - 跟随页面内容底部
         Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 30.dp)
-                .padding(bottom = 80.dp), // 增加距离底部导航栏的距离
+                .padding(vertical = 24.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = "小茅台 V$versionName",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), // 提高可见度
-                fontWeight = FontWeight.Medium
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Normal
             )
         }
+        } // 结束主要内容区域的Column
     } // 结束Box
 }
