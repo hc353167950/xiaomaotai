@@ -16,6 +16,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import android.app.AlarmManager
+import android.app.PendingIntent
 
 /**
  * 提醒前台服务
@@ -59,10 +61,12 @@ class ReminderForegroundService : Service() {
     
     private var serviceJob: Job? = null
     private lateinit var notificationManager: NotificationManager
+    private lateinit var alarmManager: AlarmManager
     
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         createNotificationChannel()
         Log.d("ReminderForegroundService", "前台服务已创建")
     }
@@ -78,8 +82,9 @@ class ReminderForegroundService : Service() {
             }
         }
         
-        // START_STICKY: 被系统杀死后会自动重启
-        return START_STICKY
+        // 增强保活机制：START_STICKY + START_REDELIVER_INTENT
+        // 确保服务被杀死后能够重启，并重新传递Intent
+        return START_STICKY or START_REDELIVER_INTENT
     }
     
     override fun onBind(intent: Intent?): IBinder? = null
@@ -88,6 +93,33 @@ class ReminderForegroundService : Service() {
         super.onDestroy()
         serviceJob?.cancel()
         Log.d("ReminderForegroundService", "前台服务已销毁")
+        
+        // 检查是否还有事件需要提醒
+        val stillHasEvents = hasAnyEvents()
+        
+        if (stillHasEvents) {
+            // 保持AlarmManager守护继续运行
+            Log.d("ReminderForegroundService", "服务被销毁但仍有事件，保持AlarmManager守护运行")
+            
+            // 在服务被销毁时，尝试重新启动（针对国产ROM优化）
+            try {
+                Log.d("ReminderForegroundService", "尝试立即重启前台服务")
+                val restartIntent = Intent(this, ReminderForegroundService::class.java).apply {
+                    action = ACTION_START_SERVICE
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(restartIntent)
+                } else {
+                    startService(restartIntent)
+                }
+            } catch (e: Exception) {
+                Log.e("ReminderForegroundService", "重启服务失败: ${e.message}")
+            }
+        } else {
+            // 没有事件时取消守护闹钟
+            cancelKeepAliveAlarm()
+            Log.d("ReminderForegroundService", "没有事件，已取消AlarmManager守护")
+        }
     }
     
     /**
@@ -99,6 +131,9 @@ class ReminderForegroundService : Service() {
         
         // 启动提醒检查任务
         startReminderCheckTask()
+        
+        // 设置AlarmManager保活守护（针对国产ROM）
+        setupKeepAliveAlarm()
         
         Log.d("ReminderForegroundService", "前台服务已启动")
     }
@@ -149,15 +184,15 @@ class ReminderForegroundService : Service() {
                 while (true) {
                     checkAndSendReminders()
                     
-                    // 检查是否还有24小时内的提醒，如果没有则停止服务
-                    if (!hasUpcomingReminders()) {
-                        Log.d("ReminderForegroundService", "没有即将到期的提醒，停止前台服务")
+                    // 检查是否还有任何事件，如果没有则停止服务
+                    if (!hasAnyEvents()) {
+                        Log.d("ReminderForegroundService", "没有任何事件，停止前台服务")
                         stopSelf()
                         break
                     }
                     
-                    // 每10分钟检查一次
-                    delay(10 * 60 * 1000)
+                    // 每15分钟检查一次
+                    delay(15 * 60 * 1000)
                 }
             } catch (e: Exception) {
                 Log.e("ReminderForegroundService", "提醒检查任务异常: ${e.message}")
@@ -198,8 +233,18 @@ class ReminderForegroundService : Service() {
                         // 检查是否到了提醒时间（允许5分钟误差）
                         val timeDiff = Math.abs(now.timeInMillis - eventCalendar.timeInMillis)
                         if (timeDiff <= 5 * 60 * 1000) { // 5分钟内
-                            // 发送提醒通知
-                            sendReminderNotification(event, eventCalendar)
+                            // 检查是否已经提醒过
+                            val daysDiff = ((eventCalendar.timeInMillis - now.timeInMillis) / (24 * 60 * 60 * 1000)).toInt()
+                            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                            val reminderKey = "${event.id}_${daysDiff}_$today"
+                            val sharedPrefs = getSharedPreferences("reminder_history", Context.MODE_PRIVATE)
+                            
+                            if (!sharedPrefs.getBoolean(reminderKey, false)) {
+                                // 发送提醒通知
+                                sendReminderNotification(event, eventCalendar)
+                            } else {
+                                Log.d("ReminderForegroundService", "事件已提醒过，跳过: ${event.eventName}, 剩余天数: $daysDiff")
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -212,12 +257,11 @@ class ReminderForegroundService : Service() {
     }
     
     /**
-     * 检查是否有24小时内的提醒
+     * 检查是否有任何事件
      */
-    private fun hasUpcomingReminders(): Boolean {
+    private fun hasAnyEvents(): Boolean {
         return try {
             val dataManager = DataManager(this)
-            val reminderManager = ReminderManager(this)
             
             val allEvents = mutableListOf<Event>()
             allEvents.addAll(dataManager.getOfflineEvents())
@@ -225,30 +269,84 @@ class ReminderForegroundService : Service() {
                 allEvents.addAll(dataManager.getLocalEvents())
             }
             
-            val now = Calendar.getInstance()
-            val twentyFourHoursLater = Calendar.getInstance().apply {
-                add(Calendar.HOUR_OF_DAY, 24)
+            allEvents.isNotEmpty()
+        } catch (e: Exception) {
+            Log.e("ReminderForegroundService", "检查事件失败: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * 设置AlarmManager保活守护机制
+     * 专门应对VIVO等国产手机的严格后台管理
+     */
+    private fun setupKeepAliveAlarm() {
+        try {
+            val intent = Intent(this, ReminderForegroundService::class.java).apply {
+                action = ACTION_START_SERVICE
             }
             
-            allEvents.any { event ->
-                val nextReminderDate = reminderManager.getNextReminderDate(event.eventDate)
-                if (nextReminderDate != null) {
-                    val eventCalendar = Calendar.getInstance().apply {
-                        time = nextReminderDate
-                        set(Calendar.HOUR_OF_DAY, 9)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }
-                    
-                    eventCalendar.timeInMillis in now.timeInMillis..twentyFourHoursLater.timeInMillis
+            val pendingIntent = PendingIntent.getService(
+                this,
+                9999, // 使用固定ID避免重复创建
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 } else {
-                    false
+                    PendingIntent.FLAG_UPDATE_CURRENT
                 }
+            )
+            
+            // 设置30分钟后的守护闹钟
+            val triggerTime = System.currentTimeMillis() + 30 * 60 * 1000
+            
+            // 使用精确闹钟确保在VIVO等设备上也能触发
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
             }
+            
+            Log.d("ReminderForegroundService", "已设置AlarmManager保活守护，30分钟后检查")
+            
         } catch (e: Exception) {
-            Log.e("ReminderForegroundService", "检查即将到期提醒失败: ${e.message}")
-            false
+            Log.e("ReminderForegroundService", "设置保活守护失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 取消AlarmManager保活守护
+     */
+    private fun cancelKeepAliveAlarm() {
+        try {
+            val intent = Intent(this, ReminderForegroundService::class.java).apply {
+                action = ACTION_START_SERVICE
+            }
+            
+            val pendingIntent = PendingIntent.getService(
+                this,
+                9999,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+            )
+            
+            alarmManager.cancel(pendingIntent)
+            Log.d("ReminderForegroundService", "已取消AlarmManager保活守护")
+            
+        } catch (e: Exception) {
+            Log.e("ReminderForegroundService", "取消保活守护失败: ${e.message}")
         }
     }
     

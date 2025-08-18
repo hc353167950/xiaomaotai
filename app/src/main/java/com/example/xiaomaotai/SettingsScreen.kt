@@ -321,11 +321,40 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable {
-                        if (!permissionSummary.isIgnoringBatteryOptimization) {
+                    .padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "电池优化白名单",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (permissionSummary.isIgnoringBatteryOptimization) 
+                                "已加入白名单" 
+                            else 
+                                "未加入，需要手动设置（重要）",
+                            fontSize = 13.sp,
+                            color = if (permissionSummary.isIgnoringBatteryOptimization) 
+                                Color(0xFF4CAF50) 
+                            else 
+                                Color(0xFFF44336)
+                        )
+                    }
+                    
+                    Switch(
+                        checked = permissionSummary.isIgnoringBatteryOptimization,
+                        onCheckedChange = { 
+                            // 点击Switch时跳转到电池优化设置
                             val permissionManager = PermissionManager(context)
                             try {
                                 val intent = permissionManager.getBatteryOptimizationSettingsIntent()
@@ -344,36 +373,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                 }
                             }
                         }
-                    }
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "电池优化白名单",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = if (permissionSummary.isIgnoringBatteryOptimization) 
-                            "已加入白名单" 
-                        else 
-                            "未加入，点击设置（重要）",
-                        fontSize = 13.sp,
-                        color = if (permissionSummary.isIgnoringBatteryOptimization) 
-                            Color(0xFF4CAF50) 
-                        else 
-                            Color(0xFFF44336)
                     )
                 }
-                
-                Switch(
-                    checked = permissionSummary.isIgnoringBatteryOptimization,
-                    onCheckedChange = { },
-                    enabled = false
-                )
             }
         }
 

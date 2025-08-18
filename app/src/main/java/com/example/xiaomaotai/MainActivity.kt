@@ -93,9 +93,6 @@ class MainActivity : ComponentActivity() {
     ) { isGranted: Boolean ->
         if (isGranted) {
             Log.d("Permission", "Notification permission granted.")
-            // 通知权限授权后，检查精确闹钟权限
-            val permissionManager = PermissionManager(this)
-            checkExactAlarmPermission(permissionManager)
         } else {
             Log.d("Permission", "Notification permission denied.")
         }
@@ -136,25 +133,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        val permissionManager = PermissionManager(this)
-        
-        // 检查通知权限
+        // 只检查通知权限，不自动请求精准闹钟权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             when {
                 ContextCompat.checkSelfPermission(
                     this, Manifest.permission.POST_NOTIFICATIONS
                 ) == PackageManager.PERMISSION_GRANTED -> {
                     Log.d("Permission", "Notification permission already granted.")
-                    // 检查精确闹钟权限
-                    checkExactAlarmPermission(permissionManager)
                 }
                 else -> {
                     requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-        } else {
-            // Android 13以下直接检查精确闹钟权限
-            checkExactAlarmPermission(permissionManager)
         }
     }
     
