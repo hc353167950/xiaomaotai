@@ -62,6 +62,27 @@ class ReminderManager(private val context: Context) {
     }
     
     /**
+     * 检查是否可以设置精确闹钟
+     * 针对vivo等国产手机优化权限检测
+     */
+    fun canScheduleAlarms(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val hasPermission = alarmManager.canScheduleExactAlarms()
+            if (!hasPermission) {
+                Log.w("ReminderManager", "精确闹钟权限未授权，设备制造商: ${Build.MANUFACTURER}")
+                // 对于vivo设备，提供额外的日志信息
+                if (Build.MANUFACTURER.lowercase().contains("vivo") || 
+                    Build.MANUFACTURER.lowercase().contains("iqoo")) {
+                    Log.w("ReminderManager", "检测到vivo设备，请在系统设置中手动授权精确闹钟权限")
+                }
+            }
+            hasPermission
+        } else {
+            true // Android 12以下默认有权限
+        }
+    }
+    
+    /**
      * 设置事件提醒 - 支持7天前、1天前、当天的多重提醒
      * 支持未登录用户，支持APP被杀死后提醒
      * 增强版：使用多重保障机制（AlarmManager + WorkManager + 前台服务）
@@ -71,6 +92,11 @@ class ReminderManager(private val context: Context) {
             // 检查权限
             if (!canScheduleAlarms()) {
                 Log.w("ReminderManager", "没有精确闹钟权限，无法设置提醒: ${event.eventName}")
+                // 对于vivo设备，提供更详细的错误信息
+                if (Build.MANUFACTURER.lowercase().contains("vivo") || 
+                    Build.MANUFACTURER.lowercase().contains("iqoo")) {
+                    Log.w("ReminderManager", "vivo设备权限提示：请前往 设置 → 应用与权限 → 权限管理 → 闹钟 中添加小茅台")
+                }
                 return
             }
             
@@ -414,16 +440,7 @@ class ReminderManager(private val context: Context) {
         }
     }
     
-    /**
-     * 检查是否有权限设置提醒
-     */
-    fun canScheduleAlarms(): Boolean {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            alarmManager.canScheduleExactAlarms()
-        } else {
-            true // Android 12以下版本默认有权限
-        }
-    }
+
     
     /**
      * 检查是否在电池优化白名单中
