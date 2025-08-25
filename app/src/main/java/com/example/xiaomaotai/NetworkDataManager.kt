@@ -6,6 +6,8 @@ import io.github.jan.supabase.gotrue.Auth
 import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.query.PostgrestQueryBuilder
 
 import kotlinx.coroutines.Dispatchers
@@ -141,6 +143,26 @@ class NetworkDataManager {
 
     init {
         Log.d("NetworkDataManager", "NetworkDataManager 初始化完成")
+    }
+    
+    // 测试云端连接
+    suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            Log.d("NetworkDataManager", "开始测试云端连接...")
+            // 尝试查询用户表来测试连接
+            val response = supabase.postgrest["users"]
+                .select() {
+                    limit(1)
+                }
+                .decodeList<UserResponse>()
+            
+            Log.d("NetworkDataManager", "云端连接测试成功，响应数据: ${response.size}条记录")
+            Result.success("连接成功")
+        } catch (e: Exception) {
+            Log.e("NetworkDataManager", "云端连接测试失败: ${e.message}")
+            Log.e("NetworkDataManager", "完整错误堆栈: ", e)
+            Result.failure(e)
+        }
     }
 
     // 检查用户是否存在
@@ -615,4 +637,158 @@ class NetworkDataManager {
             Log.e("NetworkDataManager", "更新尝试次数失败: ${e.message}")
         }
     }
+
+    /**
+     * 麻将计分云端同步功能
+     */
+    
+    // 保存麻将计分记录到云端
+    suspend fun saveMahjongScore(
+        userId: String,
+        recordTime: String,
+        winnerPosition: String,
+        winnerFan: Double,
+        positionData: String,
+        calculationDetail: String,
+        finalAmounts: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            Log.d("NetworkDataManager", "开始保存麻将计分记录到云端")
+            Log.d("NetworkDataManager", "参数: userId=$userId, recordTime=$recordTime, winnerPosition=$winnerPosition")
+            
+            val mahjongScoreData = MahjongScoreCloudData(
+                userId = userId,
+                recordTime = recordTime,
+                winnerPosition = winnerPosition,
+                winnerFan = winnerFan,
+                positionData = positionData,
+                calculationDetail = calculationDetail,
+                finalAmounts = finalAmounts
+            )
+            
+            Log.d("NetworkDataManager", "准备插入数据到mahjong_scores表")
+            val response = supabase.postgrest["mahjong_scores"].insert(mahjongScoreData)
+            Log.d("NetworkDataManager", "插入操作完成，响应: $response")
+            
+            Log.d("NetworkDataManager", "麻将计分记录保存成功")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("NetworkDataManager", "保存麻将计分记录失败: ${e.message}")
+            Log.e("NetworkDataManager", "错误类型: ${e.javaClass.simpleName}")
+            Log.e("NetworkDataManager", "完整错误堆栈: ", e)
+            
+            // 检查是否是网络问题
+            if (e.message?.contains("network", ignoreCase = true) == true ||
+                e.message?.contains("connection", ignoreCase = true) == true ||
+                e.message?.contains("timeout", ignoreCase = true) == true) {
+                Log.e("NetworkDataManager", "检测到网络相关错误")
+            }
+            
+            // 检查是否是认证问题
+            if (e.message?.contains("auth", ignoreCase = true) == true ||
+                e.message?.contains("unauthorized", ignoreCase = true) == true ||
+                e.message?.contains("403", ignoreCase = true) == true ||
+                e.message?.contains("401", ignoreCase = true) == true) {
+                Log.e("NetworkDataManager", "检测到认证相关错误")
+            }
+            
+            Result.failure(e)
+        }
+    }
+    
+    // 获取云端麻将计分记录（最近20条）
+    suspend fun getMahjongScores(userId: String): Result<List<MahjongScoreCloudResponse>> = withContext(Dispatchers.IO) {
+        try {
+            val response = supabase.postgrest["mahjong_scores"]
+                .select() {
+                    filter {
+                        eq("user_id", userId)
+                    }
+                    order("created_at", Order.DESCENDING)
+                    limit(20)
+                }
+                .decodeList<MahjongScoreCloudResponse>()
+            
+            Log.d("NetworkDataManager", "获取麻将计分记录成功: ${response.size}条")
+            Result.success(response)
+        } catch (e: Exception) {
+            Log.e("NetworkDataManager", "获取麻将计分记录失败: ${e.message}")
+            Result.failure(e)
+        }
+    }
+    
+    // 删除云端麻将计分记录
+    suspend fun deleteMahjongScore(userId: String, recordId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            supabase.postgrest["mahjong_scores"].delete {
+                filter {
+                    eq("id", recordId)
+                    eq("user_id", userId)
+                }
+            }
+            Log.d("NetworkDataManager", "删除麻将计分记录成功")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("NetworkDataManager", "删除麻将计分记录失败: ${e.message}")
+            Result.failure(e)
+        }
+    }
+    
+    // 清空用户的所有云端麻将计分记录
+    suspend fun clearAllMahjongScores(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            supabase.postgrest["mahjong_scores"].delete {
+                filter {
+                    eq("user_id", userId)
+                }
+            }
+            Log.d("NetworkDataManager", "清空麻将计分记录成功")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("NetworkDataManager", "清空麻将计分记录失败: ${e.message}")
+            Result.failure(e)
+        }
+    }
 }
+
+/**
+ * 麻将计分云端数据模型
+ */
+@Serializable
+data class MahjongScoreCloudData(
+    @SerialName("user_id")
+    val userId: String,
+    @SerialName("record_time")
+    val recordTime: String,
+    @SerialName("winner_position")
+    val winnerPosition: String,
+    @SerialName("winner_fan")
+    val winnerFan: Double,
+    @SerialName("position_data")
+    val positionData: String,
+    @SerialName("calculation_detail")
+    val calculationDetail: String,
+    @SerialName("final_amounts")
+    val finalAmounts: String
+)
+
+@Serializable
+data class MahjongScoreCloudResponse(
+    val id: Long,
+    @SerialName("user_id")
+    val userId: String,
+    @SerialName("record_time")
+    val recordTime: String,
+    @SerialName("winner_position")
+    val winnerPosition: String,
+    @SerialName("winner_fan")
+    val winnerFan: Double,
+    @SerialName("position_data")
+    val positionData: String,
+    @SerialName("calculation_detail")
+    val calculationDetail: String,
+    @SerialName("final_amounts")
+    val finalAmounts: String,
+    @SerialName("created_at")
+    val createdAt: String
+)

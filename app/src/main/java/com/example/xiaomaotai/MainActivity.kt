@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,6 +61,8 @@ import com.example.xiaomaotai.ui.components.CardStyleManager
 import com.example.xiaomaotai.ui.components.GlobalLoadingDialog
 import com.example.xiaomaotai.ui.components.calculateDaysAfter
 import com.example.xiaomaotai.ui.components.SortScreen
+import com.example.xiaomaotai.ui.components.MahjongScoreScreen
+import com.example.xiaomaotai.ui.components.MahjongHistoryScreen
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -209,6 +212,10 @@ fun MainApp(dataManager: DataManager) {
     var refreshKey by remember { mutableStateOf(0) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
     
+    // 双击返回退出相关状态
+    var backPressedTime by remember { mutableStateOf(0L) }
+    var showExitToast by remember { mutableStateOf(false) }
+    
     val permissionManager = remember { PermissionManager(context) }
 
     // 检查通知权限
@@ -233,9 +240,24 @@ fun MainApp(dataManager: DataManager) {
         }
     }
     
+    // 处理首页、晃晃、我的页面的返回按键
+    if (currentScreen in listOf("home", "mahjong", "profile")) {
+        BackHandler {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - backPressedTime < 2000) {
+                // 2秒内第二次按返回键，退出应用
+                (context as? Activity)?.finish()
+            } else {
+                // 第一次按返回键，显示提示
+                backPressedTime = currentTime
+                showExitToast = true
+            }
+        }
+    }
+    
     Scaffold(
         bottomBar = {
-            if (currentScreen != "sort") {
+            if (currentScreen != "sort" && currentScreen != "mahjong_history") {
                 NavigationBar(
                     modifier = Modifier.height(64.dp) // 缩小底部导航栏高度
                 ) {
@@ -244,6 +266,12 @@ fun MainApp(dataManager: DataManager) {
                         label = { Text("首页") },
                         selected = currentScreen == "home",
                         onClick = { currentScreen = "home" }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Default.Star, contentDescription = "晃晃") },
+                        label = { Text("晃晃") },
+                        selected = currentScreen == "mahjong",
+                        onClick = { currentScreen = "mahjong" }
                     )
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
@@ -367,9 +395,57 @@ fun MainApp(dataManager: DataManager) {
                     }
                 )
             }
+            "mahjong" -> {
+                MahjongScoreScreen(
+                    dataManager = dataManager,
+                    onNavigateToHistory = {
+                        currentScreen = "mahjong_history"
+                    },
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
+            "mahjong_history" -> {
+                MahjongHistoryScreen(
+                    dataManager = dataManager,
+                    onNavigateBack = {
+                        currentScreen = "mahjong"
+                    },
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
         }
     }
     
+    // 退出提示Toast（覆盖层，需在MainApp作用域内）
+    if (showExitToast) {
+        LaunchedEffect(showExitToast) {
+            kotlinx.coroutines.delay(2000)
+            showExitToast = false
+        }
+        
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Card(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .wrapContentSize(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.inverseSurface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                Text(
+                    text = "再次返回退出到桌面",
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+
     // 首次启动时检查精确闹钟权限
     LaunchedEffect(Unit) {
         if (!permissionManager.hasExactAlarmPermission()) {
@@ -480,8 +556,8 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // 手势返回处理
-    BackHandler {
+    // 手势返回处理：仅在需要拦截时启用，其他情况交给上层(MainApp)的双击退出逻辑
+    BackHandler(enabled = isDragSortMode || showAddDialog || selectedEvent != null) {
         when {
             isDragSortMode -> {
                 isDragSortMode = false
@@ -490,10 +566,6 @@ fun HomeScreen(
             showAddDialog || selectedEvent != null -> {
                 showAddDialog = false
                 selectedEvent = null
-            }
-
-            else -> {
-                (context as? Activity)?.finish()
             }
         }
     }
