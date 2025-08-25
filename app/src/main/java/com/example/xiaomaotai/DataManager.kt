@@ -421,7 +421,39 @@ class DataManager(private val context: Context) {
         }
     }
 
-    companion object {
-        private const val TAG = "DataManager"
+    // 获取当前用户ID
+    fun getCurrentUserId(): String? {
+        return getCurrentUser()?.id
     }
+
+    // 麻将计分云端同步方法
+    suspend fun saveMahjongScoreToCloud(
+        recordTime: String,
+        winnerPosition: String,
+        winnerFan: Double,
+        positionData: String,
+        calculationDetail: String,
+        finalAmounts: String
+    ) {
+        try {
+            val currentUser = getCurrentUser()
+            if (currentUser != null) {
+                networkDataManager.saveMahjongScore(
+                    userId = currentUser.id,
+                    recordTime = recordTime,
+                    winnerPosition = winnerPosition,
+                    winnerFan = winnerFan,
+                    positionData = positionData,
+                    calculationDetail = calculationDetail,
+                    finalAmounts = finalAmounts
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save mahjong score to cloud", e)
+        }
+    }
+
+companion object {
+private const val TAG = "DataManager"
+}
 }
