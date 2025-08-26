@@ -595,91 +595,101 @@ fun HorizontalPositionCard(
                            else MaterialTheme.colorScheme.surface
         )
     ) {
-        Row(
-            modifier = Modifier
-                .padding(12.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(12.dp)
         ) {
-            // 左侧：方位名称和胡牌按钮
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+            // 上部：方位名称、胡牌按钮和输入框
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = displayName,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                
-                Button(
-                    onClick = onWinnerClick,
-                    modifier = Modifier
-                        .width(80.dp)
-                        .height(32.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isWinner) MaterialTheme.colorScheme.primary 
-                                       else MaterialTheme.colorScheme.outline
-                    )
+                // 左侧：方位名称和胡牌按钮
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "胡牌",
-                        fontSize = 10.sp
+                        text = displayName,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    
+                    Button(
+                        onClick = onWinnerClick,
+                        modifier = Modifier
+                            .width(80.dp)
+                            .height(32.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isWinner) MaterialTheme.colorScheme.primary 
+                                           else MaterialTheme.colorScheme.outline
+                        )
+                    ) {
+                        Text(
+                            text = "胡牌",
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+                
+                // 右侦：输入框区域
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = if (isWinner) fanValue else bonusFanValue,
+                        onValueChange = if (isWinner) onFanChange else onBonusFanChange,
+                        label = { Text(if (isWinner) "番数" else "奖金番", fontSize = 10.sp) },
+                        modifier = Modifier.width(80.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                        singleLine = true
+                    )
+                    
+                    OutlinedTextField(
+                        value = hongzhongValue,
+                        onValueChange = onHongzhongChange,
+                        label = { Text("红中", fontSize = 10.sp) },
+                        modifier = Modifier.width(80.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                        singleLine = true
                     )
                 }
             }
             
-            // 中间：输入框区域
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = if (isWinner) fanValue else bonusFanValue,
-                    onValueChange = if (isWinner) onFanChange else onBonusFanChange,
-                    label = { Text(if (isWinner) "番数" else "奖金番", fontSize = 10.sp) },
-                    modifier = Modifier.width(80.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                    singleLine = true
-                )
-                
-                OutlinedTextField(
-                    value = hongzhongValue,
-                    onValueChange = onHongzhongChange,
-                    label = { Text("红中", fontSize = 10.sp) },
-                    modifier = Modifier.width(80.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                    singleLine = true
-                )
-            }
-            
-            // 右侧：最终金额显示
+            // 底部：金额显示
             finalAmount?.let { amount ->
-                Text(
-                    text = when {
-                        amount > 0 -> "+${String.format("%.0f", amount)}元"
-                        amount < 0 -> "${String.format("%.0f", amount)}元"
-                        else -> "0元"
-                    },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = when {
-                        amount > 0 -> Color(0xFF4CAF50) // 绿色表示赢钱
-                        amount < 0 -> Color(0xFFF44336) // 红色表示输钱
-                        else -> MaterialTheme.colorScheme.onSurface
-                    },
-                    modifier = Modifier
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    textAlign = TextAlign.Center
-                )
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = when {
+                            amount > 0 -> "+${String.format("%.0f", amount)}元"
+                            amount < 0 -> "${String.format("%.0f", amount)}元"
+                            else -> "0元"
+                        },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            amount > 0 -> Color(0xFF4CAF50) // 绿色表示赢钱
+                            amount < 0 -> Color(0xFFF44336) // 红色表示输钱
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }
