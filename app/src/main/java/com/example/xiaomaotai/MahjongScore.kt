@@ -154,7 +154,9 @@ object MahjongCalculator {
         // 辅助函数：计算两个方位之间的顶杆影响（局部影响，只在两人结算时生效）
         fun getDingGangEffectBetween(position1: String, position2: String): Int {
             // 返回position2被position1顶杆的次数，只在这两人结算时position2+1番
-            return dingGangConnections.count { it.from == position1 && it.to == position2 }
+            return dingGangConnections
+                .filter { it.from == position1 && it.to == position2 }
+                .sumOf { it.count }
         }
         
         // 第一层：胡牌计算（统一规则：只有被顶杆的人+1番）
@@ -186,20 +188,27 @@ object MahjongCalculator {
                 "(${winnerFan}-${posData.bonusFan})×${winnerMultiplier}×10×${payerMultiplier} = ${finalAmount}元"
             }
             
+            // 修正第一层计算逻辑：
+            // 如果effectiveFan > 0，支付方给胡牌方钱（正常情况）
+            // 如果effectiveFan < 0，胡牌方给支付方钱（胡牌番数小于奖金番数）
+            val actualFromPosition = if (finalAmount >= 0) position else winnerPosition
+            val actualToPosition = if (finalAmount >= 0) winnerPosition else position
+            val actualAmount = kotlin.math.abs(finalAmount)
+            
             firstLayerCalculations.add(
                 FirstLayerCalculation(
-                    fromPosition = position,
-                    toPosition = winnerPosition,
+                    fromPosition = actualFromPosition,
+                    toPosition = actualToPosition,
                     winnerFanAmount = effectiveFan,
                     payerMultiplier = payerMultiplier,
-                    finalAmount = finalAmount,
+                    finalAmount = actualAmount,
                     formula = formula
                 )
             )
             
-            // 更新临时金额
-            tempAmounts[position] = tempAmounts[position]!! - finalAmount
-            tempAmounts[winnerPosition] = tempAmounts[winnerPosition]!! + finalAmount
+            // 更新临时金额（使用实际的转账方向）
+            tempAmounts[actualFromPosition] = tempAmounts[actualFromPosition]!! - actualAmount
+            tempAmounts[actualToPosition] = tempAmounts[actualToPosition]!! + actualAmount
         }
         
         // 第二层：奖金番互算（每对关系单独计算顶杆影响）
