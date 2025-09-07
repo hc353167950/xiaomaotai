@@ -1,5 +1,6 @@
 package com.example.xiaomaotai
 
+import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
@@ -55,9 +56,15 @@ class ReminderManager(private val context: Context) {
                 setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI, null) // 设置默认声音
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC // 锁屏显示
                 setShowBadge(true) // 显示角标
+                
+                // 优化2：提升通知系统级优先级
+                setBypassDnd(true) // 绕过勿扰模式
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    setAllowBubbles(true) // 允许气泡通知
+                }
             }
             notificationManager.createNotificationChannel(channel)
-            Log.d("ReminderManager", "通知渠道已创建，重要性级别: HIGH")
+            Log.d("ReminderManager", "通知渠道已创建，重要性级别: HIGH，已启用系统级优先级（绕过勿扰模式）")
         }
     }
     
@@ -216,6 +223,10 @@ class ReminderManager(private val context: Context) {
                             )
                         }
                         Log.d("ReminderManager", "✅ 已成功设置${reminderLabels[index]}提醒: ${event.eventName} at ${reminderCalendar.time}, PendingIntent ID: ${"${event.id}_$daysBefore".hashCode()}")
+                        
+                        // 优化1：增加多重备份AlarmManager（1-3分钟后的备份提醒）
+                        setupBackupAlarms(event, reminderCalendar, daysBefore, reminderLabels[index])
+                        
                     } catch (e: SecurityException) {
                         Log.e("ReminderManager", "❌ 设置精确闹钟权限被拒绝: ${e.message}")
                     } catch (e: Exception) {
@@ -615,40 +626,7 @@ class ReminderManager(private val context: Context) {
         }
     }
     
-    /**
-     * 检查是否需要启动前台服务
-     * 只在有24小时内的提醒时启动前台服务
-     */
-    private fun checkAndStartForegroundService(event: Event, eventCalendar: Calendar) {
-        try {
-            // 只在Android 8.0+上启动前台服务
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                return
-            }
-            
-            val now = Calendar.getInstance()
-            val twentyFourHoursLater = Calendar.getInstance().apply {
-                add(Calendar.HOUR_OF_DAY, 24)
-            }
-            
-            // 检查事件是否在24小时内
-            val reminderDays = listOf(7, 1, 0)
-            val hasUpcomingReminder = reminderDays.any { daysBefore ->
-                val reminderCalendar = eventCalendar.clone() as Calendar
-                reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
-                
-                reminderCalendar.timeInMillis in now.timeInMillis..twentyFourHoursLater.timeInMillis
-            }
-            
-            if (hasUpcomingReminder) {
-                Log.d("ReminderManager", "发现24小时内的提醒，启动前台服务: ${event.eventName}")
-                ReminderForegroundService.startService(context)
-            }
-            
-        } catch (e: Exception) {
-            Log.e("ReminderManager", "检查前台服务状态失败: ${e.message}")
-        }
-    }
+
     
     /**
      * 停止所有增强功能
@@ -669,5 +647,132 @@ class ReminderManager(private val context: Context) {
         }
     }
 
+    /**
+     * 优化1：设置多重备份AlarmManager（1-3分钟后的备份提醒）
+     * 在原有功能基础上增加备份机制，确保提醒可靠性
+     */
+    private fun setupBackupAlarms(event: Event, originalReminderTime: Calendar, daysBefore: Int, reminderLabel: String) {
+        try {
+            // 设置1分钟、2分钟、3分钟后的备份提醒
+            val backupDelays = listOf(1, 2, 3) // 分钟
+            
+            backupDelays.forEach { delayMinutes ->
+                val backupTime = originalReminderTime.clone() as Calendar
+                backupTime.add(Calendar.MINUTE, delayMinutes)
+                
+                val backupIntent = Intent(context, ReminderReceiver::class.java).apply {
+                    action = "com.example.xiaomaotai.BACKUP_REMINDER"
+                    putExtra("event_id", event.id)
+                    putExtra("event_name", event.eventName)
+                    putExtra("event_date", event.eventDate)
+                    putExtra("days_remaining", daysBefore)
+                    putExtra("reminder_label", reminderLabel)
+                    putExtra("backup_delay", delayMinutes)
+                    putExtra("original_time", originalReminderTime.timeInMillis)
+                }
+                
+                val backupPendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    "${event.id}_${daysBefore}_backup_${delayMinutes}".hashCode(),
+                    backupIntent,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    } else {
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                    }
+                )
+                
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            backupTime.timeInMillis,
+                            backupPendingIntent
+                        )
+                    } else {
+                        alarmManager.setExact(
+                            AlarmManager.RTC_WAKEUP,
+                            backupTime.timeInMillis,
+                            backupPendingIntent
+                        )
+                    }
+                    Log.d("ReminderManager", "✅ 备份提醒已设置: ${event.eventName} (${delayMinutes}分钟后) at ${backupTime.time}")
+                } catch (e: Exception) {
+                    Log.e("ReminderManager", "❌ 设置备份提醒失败: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "设置备份提醒失败: ${e.message}")
+        }
+    }
+
+    
+    /**
+     * 优化3：检查并启动前台服务（24小时内提醒时启动保活）
+     * 当事件在24小时内有提醒时，启动前台服务确保APP存活
+     */
+    private fun checkAndStartForegroundService(event: Event, eventCalendar: Calendar) {
+        try {
+            val now = Calendar.getInstance()
+            val timeDiffHours = (eventCalendar.timeInMillis - now.timeInMillis) / (1000 * 60 * 60)
+            
+            Log.d("ReminderManager", "检查前台服务需求: ${event.eventName}, 距离事件还有 ${timeDiffHours} 小时")
+            
+            // 如果事件在24小时内，启动前台服务保活
+            if (timeDiffHours in 0..24) {
+                Log.d("ReminderManager", "✅ 事件 ${event.eventName} 在24小时内，启动前台服务保活")
+                startForegroundServiceForReminder(event, timeDiffHours)
+            } else if (timeDiffHours < 0) {
+                // 事件已过期，检查是否有立即提醒需要前台服务
+                Log.d("ReminderManager", "⚠️ 事件 ${event.eventName} 已过期，检查立即提醒需求")
+                // 对于当天的立即提醒，也启动前台服务确保可靠性
+                startForegroundServiceForReminder(event, 0)
+            } else {
+                Log.d("ReminderManager", "ℹ️ 事件 ${event.eventName} 超过24小时，暂不启动前台服务")
+            }
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "检查前台服务失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 启动前台服务用于关键提醒保活
+     * 优化3的核心实现：智能启动前台服务
+     */
+    private fun startForegroundServiceForReminder(event: Event, hoursUntilEvent: Long) {
+        try {
+            val serviceIntent = Intent(context, ReminderForegroundService::class.java).apply {
+                putExtra("event_id", event.id)
+                putExtra("event_name", event.eventName)
+                putExtra("event_date", event.eventDate)
+                putExtra("hours_until_event", hoursUntilEvent)
+                putExtra("service_duration_hours", if (hoursUntilEvent <= 1) 2 else 24) // 1小时内事件保活2小时，其他保活24小时
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+                Log.d("ReminderManager", "✅ 已启动前台服务保活: ${event.eventName}, 保活时长: ${if (hoursUntilEvent <= 1) 2 else 24}小时")
+            } else {
+                context.startService(serviceIntent)
+                Log.d("ReminderManager", "✅ 已启动后台服务保活: ${event.eventName} (Android < 8.0)")
+            }
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "启动前台服务失败: ${e.message}")
+        }
+    }
+    
+    /**
+     * 检查前台服务是否正在运行
+     */
+    fun isForegroundServiceRunning(): Boolean {
+        return try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val services = activityManager.getRunningServices(Integer.MAX_VALUE)
+            services.any { it.service.className == ReminderForegroundService::class.java.name }
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "检查前台服务状态失败: ${e.message}")
+            false
+        }
+    }
 
 }

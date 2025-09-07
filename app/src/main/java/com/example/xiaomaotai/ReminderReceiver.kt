@@ -16,6 +16,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 // 处理纪念日提醒
                 handleReminderNotification(context, intent)
             }
+            "com.example.xiaomaotai.BACKUP_REMINDER" -> {
+                // 处理备份提醒
+                handleBackupReminderNotification(context, intent)
+            }
             Intent.ACTION_BOOT_COMPLETED -> {
                 // 处理开机重启后的提醒重新设置
                 handleBootCompleted(context)
@@ -88,9 +92,12 @@ class ReminderReceiver : BroadcastReceiver() {
                 .setContentText(content)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setPriority(NotificationCompat.PRIORITY_HIGH) // 提高优先级确保显示
+                .setCategory(NotificationCompat.CATEGORY_ALARM) // 优化2：系统级闹钟类别
                 .setAutoCancel(true)
                 .setDefaults(NotificationCompat.DEFAULT_ALL) // 添加默认声音、震动等
                 .setStyle(NotificationCompat.BigTextStyle().bigText(content)) // 支持长文本显示
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // 锁屏显示
+                .setOnlyAlertOnce(false) // 允许重复提醒
                 .setWhen(System.currentTimeMillis())
                 .setShowWhen(true)
                 .build()
@@ -192,5 +199,73 @@ class ReminderReceiver : BroadcastReceiver() {
                 e.printStackTrace()
             }
         }
+    }
+    
+    /**
+     * 处理备份提醒通知
+     * 优化1的一部分：处理1-3分钟后的备份提醒
+     */
+    private fun handleBackupReminderNotification(context: Context, intent: Intent) {
+        val eventName = intent.getStringExtra("event_name") ?: "纪念日"
+        val eventId = intent.getStringExtra("event_id") ?: ""
+        val daysRemaining = intent.getIntExtra("days_remaining", 0)
+        val reminderLabel = intent.getStringExtra("reminder_label") ?: "就是今天"
+        val backupDelay = intent.getIntExtra("backup_delay", 0)
+        val originalTime = intent.getLongExtra("original_time", 0)
+
+        android.util.Log.d("ReminderReceiver", "处理备份提醒通知: $eventName, 备份延迟: ${backupDelay}分钟")
+
+        // 检查原始提醒是否已经发送过，如果已发送则跳过备份提醒
+        val sharedPreferences = context.getSharedPreferences("reminder_history", Context.MODE_PRIVATE)
+        val today = android.text.format.DateFormat.format("yyyy-MM-dd", System.currentTimeMillis()).toString()
+        val originalReminderKey = "${eventId}_${daysRemaining}_$today"
+        
+        if (sharedPreferences.getBoolean(originalReminderKey, false)) {
+            android.util.Log.d("ReminderReceiver", "原始提醒已发送，跳过备份提醒: $eventName")
+            return
+        }
+
+        // 检查事件是否仍然存在
+        val dataManager = DataManager(context)
+        val allEvents = mutableListOf<Event>()
+        allEvents.addAll(dataManager.getOfflineEvents())
+        dataManager.getCurrentUser()?.let { _ ->
+            allEvents.addAll(dataManager.getLocalEvents())
+        }
+        
+        val eventExists = allEvents.any { it.id == eventId }
+        if (!eventExists) {
+            android.util.Log.d("ReminderReceiver", "事件 $eventId 已被删除，取消备份通知")
+            return
+        }
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // 确保通知渠道存在
+        val reminderManager = ReminderManager(context)
+        
+        // 创建备份通知，使用系统级优先级
+        val notification = NotificationCompat.Builder(context, ReminderManager.CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("📅 $reminderLabel")
+            .setContentText("$eventName 🎉")
+            .setSubText("备份提醒 #$backupDelay") // 标明备份序号
+            .setPriority(NotificationCompat.PRIORITY_HIGH) // 最高优先级
+            .setCategory(NotificationCompat.CATEGORY_ALARM) // 优化2：系统级闹钟类别
+            .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_ALL) // 声音、震动、灯光
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // 锁屏显示
+            .setOnlyAlertOnce(false) // 允许重复提醒
+            .setFullScreenIntent(null, true) // 全屏显示（高优先级）
+            .build()
+
+        val notificationId = "${eventId}_${daysRemaining}_backup_$backupDelay".hashCode()
+        notificationManager.notify(notificationId, notification)
+        
+        // 记录备份提醒已发送
+        val backupReminderKey = "${eventId}_${daysRemaining}_backup_${backupDelay}_$today"
+        sharedPreferences.edit().putBoolean(backupReminderKey, true).apply()
+        
+        android.util.Log.d("ReminderReceiver", "✅ 备份提醒 #$backupDelay 发送成功: $eventName, 通知ID: $notificationId")
     }
 }
