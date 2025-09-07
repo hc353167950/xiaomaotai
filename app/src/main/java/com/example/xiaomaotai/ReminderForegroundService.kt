@@ -74,11 +74,23 @@ class ReminderForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_SERVICE -> {
-                startForegroundService()
+                // 优化3：智能前台服务启动，支持自定义保活时长
+                val eventId = intent.getStringExtra("event_id")
+                val eventName = intent.getStringExtra("event_name")
+                val hoursUntilEvent = intent.getLongExtra("hours_until_event", 24)
+                val serviceDurationHours = intent.getLongExtra("service_duration_hours", 24)
+                
+                Log.d("ReminderForegroundService", "启动智能前台服务: $eventName, 距离事件${hoursUntilEvent}小时, 保活${serviceDurationHours}小时")
+                
+                startForegroundServiceWithDuration(eventId, eventName, serviceDurationHours)
             }
             ACTION_STOP_SERVICE -> {
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            else -> {
+                // 兼容旧版本调用
+                startForegroundService()
             }
         }
         
@@ -136,6 +148,104 @@ class ReminderForegroundService : Service() {
         setupKeepAliveAlarm()
         
         Log.d("ReminderForegroundService", "前台服务已启动")
+    }
+    
+    /**
+     * 优化3：启动智能前台服务，支持自定义保活时长
+     * 根据事件紧急程度智能调整服务运行时间
+     */
+    private fun startForegroundServiceWithDuration(eventId: String?, eventName: String?, durationHours: Long) {
+        val notification = createSmartForegroundNotification(eventName, durationHours)
+        startForeground(NOTIFICATION_ID, notification)
+        
+        // 设置AlarmManager保活守护（针对国产ROM）
+        setupKeepAliveAlarm()
+        
+        // 使用智能停止服务的定时器替代原有的提醒检查任务
+        // 避免新旧逻辑冲突导致协程取消异常
+        setupSmartServiceStop(durationHours)
+        
+        Log.d("ReminderForegroundService", "智能前台服务已启动: $eventName, 将运行${durationHours}小时")
+    }
+    
+    /**
+     * 创建智能前台服务通知，显示保活信息
+     */
+    private fun createSmartForegroundNotification(eventName: String?, durationHours: Long): Notification {
+        val title = "小茅台 - 智能保活"
+        val content = if (eventName != null) {
+            "为「$eventName」保活${durationHours}小时，确保提醒送达"
+        } else {
+            "提醒服务运行中，确保重要日期不会错过"
+        }
+        
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(content)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_LOW) // 低优先级，不打扰用户
+            .setOngoing(true) // 持续通知，用户无法滑动删除
+            .setAutoCancel(false)
+            .setSilent(true) // 静默通知
+            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .build()
+    }
+    
+    /**
+     * 设置智能服务停止定时器
+     * 优化3：根据事件紧急程度自动停止服务，节省资源
+     */
+    private fun setupSmartServiceStop(durationHours: Long) {
+        serviceJob?.cancel() // 取消之前的定时器
+        
+        serviceJob = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val durationMillis = durationHours * 60 * 60 * 1000
+                Log.d("ReminderForegroundService", "设置${durationHours}小时后自动停止服务")
+                
+                delay(durationMillis)
+                
+                // 检查是否还有24小时内的事件
+                val hasUrgentEvents = hasEventsWithin24Hours()
+                if (!hasUrgentEvents) {
+                    Log.d("ReminderForegroundService", "保活时间到期且无紧急事件，自动停止服务")
+                    stopSelf()
+                } else {
+                    Log.d("ReminderForegroundService", "保活时间到期但仍有紧急事件，继续运行")
+                    // 继续运行，但缩短检查间隔
+                    setupSmartServiceStop(2) // 再运行2小时后重新检查
+                }
+            } catch (e: Exception) {
+                Log.e("ReminderForegroundService", "智能停止服务失败: ${e.message}")
+            }
+        }
+    }
+    
+    /**
+     * 检查是否有24小时内的事件
+     */
+    private fun hasEventsWithin24Hours(): Boolean {
+        return try {
+            val dataManager = DataManager(this)
+            val allEvents = mutableListOf<Event>()
+            allEvents.addAll(dataManager.getOfflineEvents())
+            dataManager.getCurrentUser()?.let { _ ->
+                allEvents.addAll(dataManager.getLocalEvents())
+            }
+            
+            val now = Calendar.getInstance()
+            val in24Hours = Calendar.getInstance().apply { add(Calendar.HOUR_OF_DAY, 24) }
+            
+            allEvents.any { event ->
+                val reminderManager = ReminderManager(this)
+                val nextReminderDate = reminderManager.getNextReminderDate(event.eventDate)
+                nextReminderDate != null && 
+                nextReminderDate.time in now.timeInMillis..in24Hours.timeInMillis
+            }
+        } catch (e: Exception) {
+            Log.e("ReminderForegroundService", "检查24小时内事件失败: ${e.message}")
+            false
+        }
     }
     
     /**
