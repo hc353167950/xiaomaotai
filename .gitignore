@@ -45,6 +45,7 @@ processed_*
 
 # Python scripts (development tools)
 *.py
+!scripts/keep_alive.py
 __pycache__/
 *.pyc
 

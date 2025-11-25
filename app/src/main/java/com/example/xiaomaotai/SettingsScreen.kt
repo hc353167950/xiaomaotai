@@ -1,5 +1,6 @@
 package com.example.xiaomaotai
 
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Spacer
@@ -96,6 +97,74 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 8.dp)
             )
+        }
+        
+        // 后台隐藏设置项
+        var isBackgroundHidden by remember { mutableStateOf(false) }
+        
+        LaunchedEffect(Unit) {
+            val sharedPrefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+            isBackgroundHidden = sharedPrefs.getBoolean("background_hidden", false)
+        }
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "后台隐藏",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isBackgroundHidden) "已启用，APP不显示在最近任务中" else "已禁用",
+                            fontSize = 13.sp,
+                            color = if (isBackgroundHidden) 
+                                MaterialTheme.colorScheme.primary 
+                            else 
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                    Switch(
+                        checked = isBackgroundHidden,
+                        onCheckedChange = { newValue ->
+                            isBackgroundHidden = newValue
+                            val sharedPrefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+                            sharedPrefs.edit().putBoolean("background_hidden", newValue).apply()
+                            
+                            // 启用后台隐藏时启动前台服务
+                            if (newValue) {
+                                ReminderForegroundService.startService(context)
+                            } else {
+                                ReminderForegroundService.stopService(context)
+                            }
+                        }
+                    )
+                }
+                
+                if (isBackgroundHidden) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "💡 启用后，按Home键返回桌面时，APP将不会出现在最近任务列表中，但通知栏仍会显示服务通知，点击可进入APP。",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        lineHeight = 16.sp
+                    )
+                }
+            }
         }
         
         // 通知权限设置项

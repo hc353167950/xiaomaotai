@@ -1,0 +1,40 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # 每天 UTC 时间 12:00（北京时间 20:00）执行
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install supabase python-dotenv
+        pip list  # 显示安装的包，用于调试
+    
+    - name: Run keep alive script
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      run: |
+        echo "当前工作目录:"
+        pwd
+        echo "文件列表:"
+        ls -la
+        echo "脚本内容:"
+        cat scripts/keep_alive.py
+        echo "开始执行脚本..."
+        python scripts/keep_alive.py

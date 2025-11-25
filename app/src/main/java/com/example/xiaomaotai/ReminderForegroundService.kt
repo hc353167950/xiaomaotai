@@ -179,6 +179,21 @@ class ReminderForegroundService : Service() {
             "提醒服务运行中，确保重要日期不会错过"
         }
         
+        // 创建点击通知时的Intent
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        )
+        
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
@@ -188,6 +203,7 @@ class ReminderForegroundService : Service() {
             .setAutoCancel(false)
             .setSilent(true) // 静默通知
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setContentIntent(pendingIntent) // 点击通知进入APP
             .build()
     }
     
@@ -272,6 +288,21 @@ class ReminderForegroundService : Service() {
      * 创建前台服务通知
      */
     private fun createForegroundNotification(): Notification {
+        // 创建点击通知时的Intent
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        )
+        
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("小茅台")
             .setContentText("提醒服务运行中，确保重要日期不会错过")
@@ -280,6 +311,7 @@ class ReminderForegroundService : Service() {
             .setOngoing(true) // 持续通知，用户无法滑动删除
             .setAutoCancel(false)
             .setSilent(true) // 静默通知
+            .setContentIntent(pendingIntent) // 点击通知进入APP
             .build()
     }
     
