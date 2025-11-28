@@ -25,10 +25,10 @@ def keep_alive():
             print(f"成功插入数据: {result.data}")
             
             # 删除刚插入的数据
-            # print("正在清理测试数据...")
-            # for item in result.data:
-            #     delete_result = supabase.table("keep_alive").delete().eq("id", item['id']).execute()
-            #     print(f"已删除ID为 {item['id']} 的记录")
+            print("正在清理测试数据...")
+            for item in result.data:
+                delete_result = supabase.table("keep_alive").delete().eq("id", item['id']).execute()
+                print(f"已删除ID为 {item['id']} 的记录")
         else:
             print("警告：未插入任何数据")
             
@@ -55,3 +55,4 @@ if __name__ == "__main__":
     
 
     sys.exit(0 if success else 1)
+
