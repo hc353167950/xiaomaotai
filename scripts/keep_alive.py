@@ -37,11 +37,11 @@ def keep_alive():
         # ========== 2. Auth 活动 ==========
         print("\n🔐 [2/4] 执行 Auth 操作...")
         try:
-            # # 方法1: 尝试获取当前会话（即使失败也会产生 Auth Request）
+            # 方法1: 尝试获取当前会话（即使失败也会产生 Auth Request）
             # session = supabase.auth.get_session()
             # print(f"✅ Auth: 成功触发认证请求")
             
-            方法2: 如果您有测试账号，可以尝试登录（可选）
+            # 方法2: 如果您有测试账号，可以尝试登录（可选）
             test_email = os.environ.get("TEST_EMAIL")
             test_password = os.environ.get("TEST_PASSWORD")
             if test_email and test_password:
@@ -66,18 +66,6 @@ def keep_alive():
             buckets = supabase.storage.list_buckets()
             print(f"✅ Storage: 成功列出存储桶 (共 {len(buckets)} 个)")
             
-            # 方法2: 如果有公开 bucket，可以尝试上传/删除小文件（可选）
-            # bucket_name = "public"  # 替换为您的 bucket 名称
-            # try:
-            #     test_file = b"keep_alive"
-            #     file_path = f"keep_alive_{int(time.time())}.txt"
-            #     supabase.storage.from_(bucket_name).upload(file_path, test_file)
-            #     print(f"✅ Storage: 成功上传测试文件")
-            #     supabase.storage.from_(bucket_name).remove([file_path])
-            #     print(f"✅ Storage: 已删除测试文件")
-            # except Exception as e:
-            #     print(f"⚠️ Storage: 文件操作失败 ({str(e)[:50]})")
-                
         except Exception as e:
             print(f"✅ Storage: 已触发存储请求 (错误被忽略: {str(e)[:50]})")
         
