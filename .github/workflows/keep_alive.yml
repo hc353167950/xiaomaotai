@@ -2,6 +2,9 @@ name: Keep Supabase Alive
 
 on:
   schedule:
+    - cron: '0 1 * * *'   # 每天 UTC 时间 01:00（北京时间 09:00）执行
+    - cron: '0 5 * * *'   # 每天 UTC 时间 05:00（北京时间 13:00）执行
+    - cron: '0 8 * * *'   # 每天 UTC 时间 08:00（北京时间 16:00）执行
     - cron: '0 12 * * *'  # 每天 UTC 时间 12:00（北京时间 20:00）执行
   workflow_dispatch:  # 允许手动触发
 
