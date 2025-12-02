@@ -18,7 +18,6 @@ def keep_alive():
         # ========== 1. Database 活动 ==========
         print("\n📊 [1/4] 执行 Database 操作...")
         try:
-            # 多种操作确保触发请求
             print("  🔍 [1.1] 执行查询操作...")
             result = supabase.table("keep_alive").select("*").limit(1).execute()
             print(f"  ✅ Database 查询: 成功读取 {len(result.data)} 条记录")
@@ -38,55 +37,88 @@ def keep_alive():
         except Exception as e:
             print(f"  ❌ Database 操作失败: {str(e)}")
         
-        # ========== 2. Auth 活动（改进版）==========
+        # ========== 2. Auth 活动（支持用户名登录）==========
         print("\n🔐 [2/4] 执行 Auth 操作...")
         auth_success = False
         
-        # 方法1: 尝试匿名登录（推荐）
-        print("  📝 [2.1] 尝试匿名登录...")
-        try:
-            # 先登出（如果有会话）
-            try:
-                supabase.auth.sign_out()
-            except:
-                pass
-            
-            # 匿名登录
-            response = supabase.auth.sign_in_anonymously()
-            if response and response.user:
-                print(f"  ✅ Auth 匿名登录: 成功 (用户ID: {response.user.id[:8]}...)")
-                auth_success = True
-                # 立即登出
-                supabase.auth.sign_out()
-                print("  ✅ Auth: 已登出")
-            else:
-                print("  ⚠️ Auth 匿名登录: 响应异常")
-        except Exception as e:
-            print(f"  ⚠️ Auth 匿名登录失败: {str(e)[:100]}")
+        # 方法1: 尝试用户名/密码登录（自定义方式）
+        print("  👤 [2.1] 尝试用户名登录...")
+        test_username = os.environ.get("TEST_USERNAME")  # 从环境变量获取
+        test_password = os.environ.get("TEST_PASSWORD")
         
-        # 方法2: 尝试使用测试邮箱登录（如果配置了）
-        if not auth_success:
-            print("  📧 [2.2] 尝试邮箱登录...")
-            test_email = os.environ.get("TEST_EMAIL")
-            test_password = os.environ.get("TEST_PASSWORD")
-            
-            if test_email and test_password:
+        if test_username and test_password:
+            try:
+                # 方式A: 如果你的用户名存储在 email 字段
+                # （很多项目会把用户名当作 email 使用）
                 try:
                     response = supabase.auth.sign_in_with_password({
-                        "email": test_email,
+                        "email": test_username,
                         "password": test_password
                     })
                     if response and response.user:
-                        print(f"  ✅ Auth 邮箱登录: 成功")
+                        print(f"  ✅ Auth 用户名登录(email字段): 成功 (用户ID: {response.user.id[:8]}...)")
                         auth_success = True
                         supabase.auth.sign_out()
                         print("  ✅ Auth: 已登出")
-                except Exception as e:
-                    print(f"  ⚠️ Auth 邮箱登录失败: {str(e)[:100]}")
-            else:
-                print("  ℹ️ 未配置测试邮箱凭据")
+                except Exception as e1:
+                    print(f"  ⚠️ 尝试 email 字段登录失败: {str(e1)[:80]}")
+                    
+                    # 方式B: 如果用户名存储在 phone 字段
+                    try:
+                        response = supabase.auth.sign_in_with_password({
+                            "phone": test_username,
+                            "password": test_password
+                        })
+                        if response and response.user:
+                            print(f"  ✅ Auth 用户名登录(phone字段): 成功")
+                            auth_success = True
+                            supabase.auth.sign_out()
+                            print("  ✅ Auth: 已登出")
+                    except Exception as e2:
+                        print(f"  ⚠️ 尝试 phone 字段登录失败: {str(e2)[:80]}")
+                        
+                        # 方式C: 通过数据库直接验证（绕过 Auth）
+                        try:
+                            print("  🔍 尝试通过数据库验证用户...")
+                            # 查询用户表（假设你有 users 表存储用户名）
+                            user_result = supabase.table("users")\
+                                .select("*")\
+                                .eq("username", test_username)\
+                                .limit(1)\
+                                .execute()
+                            
+                            if user_result.data and len(user_result.data) > 0:
+                                print(f"  ✅ Database 用户验证: 找到用户 '{test_username}'")
+                                auth_success = True
+                            else:
+                                print(f"  ⚠️ 用户 '{test_username}' 不存在于 users 表")
+                        except Exception as e3:
+                            print(f"  ⚠️ 数据库验证失败: {str(e3)[:80]}")
+            
+            except Exception as e:
+                print(f"  ⚠️ 用户名登录失败: {str(e)[:100]}")
+        else:
+            print("  ℹ️ 未配置用户名/密码 (环境变量: TEST_USERNAME, TEST_PASSWORD)")
         
-        # 方法3: 触发密码重置请求（即使邮箱不存在也会产生请求）
+        # 方法2: 尝试匿名登录（备选方案）
+        if not auth_success:
+            print("  📝 [2.2] 尝试匿名登录...")
+            try:
+                try:
+                    supabase.auth.sign_out()
+                except:
+                    pass
+                
+                response = supabase.auth.sign_in_anonymously()
+                if response and response.user:
+                    print(f"  ✅ Auth 匿名登录: 成功 (用户ID: {response.user.id[:8]}...)")
+                    auth_success = True
+                    supabase.auth.sign_out()
+                    print("  ✅ Auth: 已登出")
+            except Exception as e:
+                print(f"  ⚠️ Auth 匿名登录失败: {str(e)[:100]}")
+        
+        # 方法3: 触发密码重置请求（保底方案）
         if not auth_success:
             print("  🔄 [2.3] 触发密码重置请求...")
             try:
@@ -95,7 +127,6 @@ def keep_alive():
                 print(f"  ✅ Auth 密码重置: 已触发请求")
                 auth_success = True
             except Exception as e:
-                # 即使失败也计入请求
                 print(f"  ✅ Auth 密码重置: 已触发请求 (预期错误: {str(e)[:50]})")
                 auth_success = True
         
@@ -110,11 +141,9 @@ def keep_alive():
             buckets = supabase.storage.list_buckets()
             print(f"  ✅ Storage 列出桶: 成功 (共 {len(buckets)} 个)")
             
-            # 如果没有 bucket，尝试列出文件也会产生请求
             if len(buckets) == 0:
                 print("  ℹ️ 无存储桶，尝试触发其他 Storage 请求...")
                 try:
-                    # 尝试访问一个不存在的 bucket 也会计入请求
                     supabase.storage.from_('keep_alive_bucket').list()
                 except:
                     print("  ✅ Storage: 已触发额外请求")
@@ -126,11 +155,9 @@ def keep_alive():
         # ========== 4. Realtime 活动 ==========
         print("\n⚡ [4/4] 执行 Realtime 操作...")
         try:
-            # 订阅一个表的变化
             channel_name = f"keep_alive_{int(time.time())}"
             channel = supabase.channel(channel_name)
             
-            # 订阅表变化
             channel.on_postgres_changes(
                 event='*',
                 schema='public',
@@ -139,7 +166,7 @@ def keep_alive():
             ).subscribe()
             
             print(f"  ✅ Realtime 订阅: 成功订阅频道 '{channel_name}'")
-            time.sleep(3)  # 保持连接3秒
+            time.sleep(3)
             
             channel.unsubscribe()
             print("  ✅ Realtime 取消订阅: 已断开连接")
