@@ -150,7 +150,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
         
-        // 精确闹钟权限设置 - 针对vivo优化
+        // 精确闹钟权限设置 - 始终显示，可点击跳转设置
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -164,7 +164,32 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     .padding(12.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            // 点击整行跳转 - 根据设备厂商智能选择跳转方式
+                            try {
+                                // 优先尝试厂商专用设置（国产手机）
+                                val intent = if (permissionManager.isChineseDevice()) {
+                                    permissionManager.getVendorSpecificAlarmSettingsIntent()
+                                } else {
+                                    permissionManager.getExactAlarmSettingsIntent()
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // 备选方案：标准设置页面
+                                try {
+                                    val intent = permissionManager.getExactAlarmSettingsIntent()
+                                    context.startActivity(intent)
+                                } catch (e2: Exception) {
+                                    // 最终备选：应用详情页
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            }
+                        },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -176,30 +201,52 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = if (permissionSummary.hasExactAlarm) "已开启" else "未开启，需要手动设置",
+                            text = if (permissionSummary.hasExactAlarm) "已开启" else "未开启，点击跳转设置",
                             fontSize = 13.sp,
-                            color = if (permissionSummary.hasExactAlarm) 
-                                Color(0xFF4CAF50) 
-                            else 
+                            color = if (permissionSummary.hasExactAlarm)
+                                Color(0xFF4CAF50)
+                            else
                                 Color(0xFFF44336)
                         )
                     }
-                    
+
                     Switch(
                         checked = permissionSummary.hasExactAlarm,
-                        onCheckedChange = { },
-                        enabled = false
+                        onCheckedChange = {
+                            // 点击Switch时跳转 - 根据设备厂商智能选择跳转方式
+                            try {
+                                // 优先尝试厂商专用设置（国产手机）
+                                val intent = if (permissionManager.isChineseDevice()) {
+                                    permissionManager.getVendorSpecificAlarmSettingsIntent()
+                                } else {
+                                    permissionManager.getExactAlarmSettingsIntent()
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // 备选方案：标准设置页面
+                                try {
+                                    val intent = permissionManager.getExactAlarmSettingsIntent()
+                                    context.startActivity(intent)
+                                } catch (e2: Exception) {
+                                    // 最终备选：应用详情页
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            }
+                        }
                     )
                 }
-                
-                // 如果权限未开启，显示多个设置选项
+
+                // 只在未开启时显示详细设置选项
                 if (!permissionSummary.hasExactAlarm) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    
+
                     // 检测设备制造商
                     val isChineseDevice = permissionManager.isChineseDevice()
                     val vendorName = permissionManager.getDeviceVendorName()
-                    
+
                     if (isChineseDevice) {
                         Text(
                             text = "检测到${vendorName}设备，请尝试以下方式设置权限：",
@@ -207,7 +254,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
-                        
+
                         Text(
                             text = "ℹ️ 提示：不同版本路径可能有差异，建议优先尝试搜索功能",
                             fontSize = 11.sp,
@@ -215,7 +262,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    
+
                     // 标准权限设置按钮
                     OutlinedButton(
                         onClick = {
@@ -234,7 +281,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     ) {
                         Text("标准权限设置")
                     }
-                    
+
                     // 国产设备专用设置按钮
                     if (isChineseDevice) {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -255,7 +302,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         ) {
                             Text("${vendorName}权限管理")
                         }
-                        
+
                         Spacer(modifier = Modifier.height(4.dp))
                         OutlinedButton(
                             onClick = {
@@ -271,38 +318,38 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         ) {
                             Text("系统设置")
                         }
-                        
+
                         // 国产设备的详细说明
                         Spacer(modifier = Modifier.height(8.dp))
                         val deviceInstructions = when {
-                            permissionManager.isVivoDevice() -> 
+                            permissionManager.isVivoDevice() ->
                                 "vivo/iQOO设备通用方法：\n1. 设置 → 应用与权限 → 权限管理 → 闹钟 → 添加小茅台\n2. 或在设置中直接搜索\"闹钟权限\""
-                            permissionManager.isXiaomiDevice() -> 
+                            permissionManager.isXiaomiDevice() ->
                                 "小米/红米设备通用方法：\n1. 设置 → 应用设置 → 应用权限 → 闹钟 → 添加小茅台\n2. 或在MIUI设置中搜索\"闹钟权限\""
-                            permissionManager.isOppoDevice() -> 
+                            permissionManager.isOppoDevice() ->
                                 "OPPO/一加设备通用方法：\n1. 设置 → 应用管理 → 应用权限 → 闹钟 → 添加小茅台\n2. 或在ColorOS设置中搜索\"闹钟\""
-                            permissionManager.isHuaweiDevice() -> 
+                            permissionManager.isHuaweiDevice() ->
                                 "华为/荣耀设备通用方法：\n1. 设置 → 应用和服务 → 权限管理 → 闹钟 → 添加小茅台\n2. 或在HarmonyOS/EMUI设置中搜索\"闹钟权限\""
-                            else -> 
+                            else ->
                                 "国产设备通用方法：\n1. 在系统设置中搜索\"闹钟权限\"或\"应用权限\"\n2. 或在\"手机管家\"、\"安全中心\"中找权限管理"
                         }
-                        
+
                         Text(
                             text = deviceInstructions,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             lineHeight = 14.sp
                         )
-                        
+
                         // 通用备选方案
-                        val isChineseDevice = permissionManager.isVivoDevice() || 
-                                            permissionManager.isXiaomiDevice() || 
-                                            permissionManager.isOppoDevice() || 
+                        val isChineseDevice = permissionManager.isVivoDevice() ||
+                                            permissionManager.isXiaomiDevice() ||
+                                            permissionManager.isOppoDevice() ||
                                             permissionManager.isHuaweiDevice()
                         if (isChineseDevice) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "💡 如果以上路径找不到，请在设置中直接搜索“闹钟”或“权限”关键词",
+                                text = "💡 如果以上路径找不到，请在设置中直接搜索\"闹钟\"或\"权限\"关键词",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.secondary,
                                 lineHeight = 12.sp
@@ -327,49 +374,128 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     .padding(12.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            // 点击整行跳转到电池优化设置
+                            val permissionManager = PermissionManager(context)
+
+                            if (permissionSummary.isIgnoringBatteryOptimization) {
+                                // 已允许后台运行，点击后跳转到列表页面让用户手动取消
+                                try {
+                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // 备选：应用详情页
+                                    try {
+                                        val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = android.net.Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(appSettingsIntent)
+                                    } catch (e2: Exception) {
+                                        // 最终备选：系统设置
+                                        val settingsIntent = Intent(Settings.ACTION_SETTINGS)
+                                        context.startActivity(settingsIntent)
+                                    }
+                                }
+                            } else {
+                                // 未允许后台运行，点击后弹出授权对话框
+                                try {
+                                    // 优先尝试直接请求权限（会弹出系统对话框）
+                                    val intent = permissionManager.getBatteryOptimizationSettingsIntent()
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // 如果直接请求失败，跳转到电池优化列表页面
+                                    try {
+                                        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                        context.startActivity(fallbackIntent)
+                                    } catch (e2: Exception) {
+                                        // 国产手机可能需要跳转到应用详情页手动设置
+                                        try {
+                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = android.net.Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(appSettingsIntent)
+                                        } catch (e3: Exception) {
+                                            // 最终备选：系统设置
+                                            val settingsIntent = Intent(Settings.ACTION_SETTINGS)
+                                            context.startActivity(settingsIntent)
+                                        }
+                                    }
+                                }
+                            }
+                        },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "电池优化白名单",
+                            text = "允许后台运行",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = if (permissionSummary.isIgnoringBatteryOptimization) 
-                                "已加入白名单" 
-                            else 
-                                "未加入，需要手动设置（重要）",
+                            text = if (permissionSummary.isIgnoringBatteryOptimization)
+                                "已允许（电池优化已关闭）"
+                            else
+                                "未允许，点击设置关闭电池优化",
                             fontSize = 13.sp,
-                            color = if (permissionSummary.isIgnoringBatteryOptimization) 
-                                Color(0xFF4CAF50) 
-                            else 
+                            color = if (permissionSummary.isIgnoringBatteryOptimization)
+                                Color(0xFF4CAF50)
+                            else
                                 Color(0xFFF44336)
                         )
                     }
-                    
+
                     Switch(
                         checked = permissionSummary.isIgnoringBatteryOptimization,
-                        onCheckedChange = { 
+                        onCheckedChange = {
                             // 点击Switch时跳转到电池优化设置
                             val permissionManager = PermissionManager(context)
-                            try {
-                                val intent = permissionManager.getBatteryOptimizationSettingsIntent()
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                // 如果无法打开设置页面，尝试打开通用电池优化设置
+
+                            if (permissionSummary.isIgnoringBatteryOptimization) {
+                                // 已允许后台运行，点击后跳转到列表页面让用户手动取消
                                 try {
-                                    val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                    context.startActivity(fallbackIntent)
-                                } catch (e2: Exception) {
-                                    // 最后的备用方案：打开应用设置页面
-                                    val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                        data = android.net.Uri.parse("package:${context.packageName}")
+                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // 备选：应用详情页
+                                    try {
+                                        val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = android.net.Uri.parse("package:${context.packageName}")
+                                        }
+                                        context.startActivity(appSettingsIntent)
+                                    } catch (e2: Exception) {
+                                        // 最终备选：系统设置
+                                        val settingsIntent = Intent(Settings.ACTION_SETTINGS)
+                                        context.startActivity(settingsIntent)
                                     }
-                                    context.startActivity(appSettingsIntent)
+                                }
+                            } else {
+                                // 未允许后台运行，点击后弹出授权对话框
+                                try {
+                                    // 优先尝试直接请求权限（会弹出系统对话框）
+                                    val intent = permissionManager.getBatteryOptimizationSettingsIntent()
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // 如果直接请求失败，跳转到电池优化列表页面
+                                    try {
+                                        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                        context.startActivity(fallbackIntent)
+                                    } catch (e2: Exception) {
+                                        // 国产手机可能需要跳转到应用详情页手动设置
+                                        try {
+                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = android.net.Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(appSettingsIntent)
+                                        } catch (e3: Exception) {
+                                            // 最终备选：系统设置
+                                            val settingsIntent = Intent(Settings.ACTION_SETTINGS)
+                                            context.startActivity(settingsIntent)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -405,38 +531,38 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
-                
+
                 // 提醒时间列表 - 统一样式
                 val reminderTimes = listOf(
-                    "提前7天" to "上午 9:00",
-                    "提前1天" to "上午 9:00", 
-                    "当天" to "上午 9:00"
+                    "提前7天" to "上午08:00",
+                    "提前1天" to "上午08:00",
+                    "当天" to "凌晨00:00、上午08:00、中午12:00"
                 )
-                
+
                 reminderTimes.forEach { (time, schedule) ->
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 4.dp)
                     ) {
                         Text(
                             text = "• $time",
                             fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
                             text = schedule,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(start = 12.dp, top = 2.dp)
                         )
                     }
                 }
-                
+
                 // 特殊说明
                 Text(
-                    text = "当天添加的纪念日会在30秒后立即提醒",
+                    text = "当天添加的纪念日会在30-50秒后立即提醒",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium,

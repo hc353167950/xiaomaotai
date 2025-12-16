@@ -93,11 +93,12 @@ class DataManager(private val context: Context) {
     fun getEvents(): List<Event> {
         return if (isLoggedIn()) {
             Log.d(TAG, "Getting events for logged in user. Count: ${localEvents.size}")
-            // 按sortOrder降序排序，确保新建事件在前面
+            // 直接按sortOrder降序排序，保持用户设置的顺序
+            // 不进行自动过期事件排序，完全尊重用户的手动排序
             localEvents.sortedByDescending { it.sortOrder }
         } else {
             Log.d(TAG, "Getting events for offline user. Count: ${offlineEvents.size}")
-            // 按sortOrder降序排序，确保新建事件在前面
+            // 直接按sortOrder降序排序，保持用户设置的顺序
             offlineEvents.sortedByDescending { it.sortOrder }
         }
     }

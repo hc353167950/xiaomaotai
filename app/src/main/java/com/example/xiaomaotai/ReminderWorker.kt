@@ -87,12 +87,11 @@ class ReminderWorker(
                         
                         if (daysDiff in 0..7) {
                             upcomingCount++
-                            
+
                             // 确保AlarmManager提醒已设置（防止丢失）
-                            if (!reminderManager.hasReminderSentToday(event.id, daysDiff)) {
-                                reminderManager.safeScheduleReminder(event)
-                                Log.d(TAG, "重新设置提醒: ${event.eventName}, 剩余${daysDiff}天")
-                            }
+                            // 直接重新设置提醒，safeScheduleReminder会先取消再设置，确保提醒正确
+                            reminderManager.safeScheduleReminder(event)
+                            Log.d(TAG, "重新设置提醒: ${event.eventName}, 剩余${daysDiff}天")
                         }
                     }
                 } catch (e: Exception) {

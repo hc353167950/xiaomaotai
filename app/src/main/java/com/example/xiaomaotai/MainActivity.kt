@@ -556,6 +556,81 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    /**
+     * 判断事件今年的日期是否已过（仅用于显示排序，不修改数据库）
+     */
+    fun isEventPassedThisYear(eventDate: String, today: java.time.LocalDate): Boolean {
+        return try {
+            when {
+                // 农历事件：计算距离下次的天数
+                eventDate.startsWith("lunar:") -> {
+                    val lunarDatePart = eventDate.removePrefix("lunar:")
+                    val daysBetween = when {
+                        lunarDatePart.contains("-L") -> {
+                            val parts = lunarDatePart.split("-")
+                            if (parts.size >= 3) {
+                                val year = parts[0].toInt()
+                                val monthPart = parts[1]
+                                val lunarDay = parts[2].toInt()
+                                val actualMonth = monthPart.substring(1).toInt()
+                                LunarCalendarHelper.calculateLunarCountdown(year, actualMonth, lunarDay, true, today)
+                            } else 1L
+                        }
+                        lunarDatePart.contains("--") -> {
+                            val corrected = lunarDatePart.replace("--", "-")
+                            val parts = corrected.split("-")
+                            if (parts.size >= 3) {
+                                val year = parts[0].toInt()
+                                val lunarMonth = parts[1].toInt()
+                                val lunarDay = parts[2].toInt()
+                                LunarCalendarHelper.calculateLunarCountdown(year, lunarMonth, lunarDay, true, today)
+                            } else 1L
+                        }
+                        else -> {
+                            val parts = lunarDatePart.split("-")
+                            if (parts.size >= 3) {
+                                val year = parts[0].toInt()
+                                val lunarMonth = parts[1].toInt()
+                                val lunarDay = parts[2].toInt()
+                                LunarCalendarHelper.calculateLunarCountdown(year, lunarMonth, lunarDay, false, today)
+                            } else 1L
+                        }
+                    }
+                    // 距离下次超过200天，说明刚过去不久
+                    daysBetween > 200
+                }
+                // 月-日格式：检查今年的这个日期是否已过
+                eventDate.matches(Regex("\\d{2}-\\d{2}")) -> {
+                    val parts = eventDate.split("-")
+                    if (parts.size >= 2) {
+                        val month = parts[0].toInt()
+                        val day = parts[1].toInt()
+                        val thisYearDate = java.time.LocalDate.of(today.year, month, day)
+                        // 今年的日期已过，且不是昨天或今天
+                        thisYearDate.isBefore(today) &&
+                            java.time.temporal.ChronoUnit.DAYS.between(thisYearDate, today) > 1
+                    } else false
+                }
+                // 标准格式 yyyy-MM-dd：检查今年的这个日期是否已过
+                eventDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> {
+                    val parts = eventDate.split("-")
+                    if (parts.size >= 3) {
+                        val month = parts[1].toInt()
+                        val day = parts[2].toInt()
+                        val thisYearDate = java.time.LocalDate.of(today.year, month, day)
+                        // 今年的日期已过，且不是昨天或今天
+                        thisYearDate.isBefore(today) &&
+                            java.time.temporal.ChronoUnit.DAYS.between(thisYearDate, today) > 1
+                    } else false
+                }
+                else -> false
+            }
+        } catch (e: Exception) {
+            Log.e("HomeScreen", "Error checking if event passed: $eventDate", e)
+            false
+        }
+    }
+
     // 手势返回处理：仅在需要拦截时启用，其他情况交给上层(MainApp)的双击退出逻辑
     BackHandler(enabled = isDragSortMode || showAddDialog || selectedEvent != null) {
         when {
@@ -581,16 +656,23 @@ fun HomeScreen(
         }
     }
 
-    // 数据加载 - 保持数据库原始顺序，不进行额外排序
+    // 数据加载 - 智能排序：将过期事件移到末尾（仅显示层面，不修改数据库）
     LaunchedEffect(loginState, dataManager, refreshKey) {
         scope.launch {
             isLoading = true
             try {
                 val newEvents = dataManager.getEvents()
-                // 直接使用数据库返回的顺序，不进行任何重新排序
-                events = newEvents
 
-                Log.d("HomeScreen", "Events loaded: ${newEvents.size}")
+                // 智能排序：将今年已过且距离下次还很久的事件移到末尾
+                val today = java.time.LocalDate.now()
+                val (passedEvents, upcomingEvents) = newEvents.partition { event ->
+                    isEventPassedThisYear(event.eventDate, today)
+                }
+
+                // 显示顺序：未过期的在前，已过期的在后（各自保持原有sortOrder排序）
+                events = upcomingEvents + passedEvents
+
+                Log.d("HomeScreen", "Events loaded: ${newEvents.size} (upcoming: ${upcomingEvents.size}, passed: ${passedEvents.size})")
             } catch (e: Exception) {
                 Log.e("HomeScreen", "Failed to load events", e)
             } finally {
