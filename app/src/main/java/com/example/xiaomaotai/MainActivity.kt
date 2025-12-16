@@ -663,16 +663,47 @@ fun HomeScreen(
             try {
                 val newEvents = dataManager.getEvents()
 
-                // 智能排序：将今年已过且距离下次还很久的事件移到末尾
-                val today = java.time.LocalDate.now()
-                val (passedEvents, upcomingEvents) = newEvents.partition { event ->
-                    isEventPassedThisYear(event.eventDate, today)
+                // 只在日期变化时执行自动排序，避免覆盖用户手动排序
+                if (dataManager.shouldAutoSort()) {
+                    val today = java.time.LocalDate.now()
+                    val (passedEvents, upcomingEvents) = newEvents.partition { event ->
+                        isEventPassedThisYear(event.eventDate, today)
+                    }
+
+                    // 如果有已过期事件，重新排序并保存
+                    if (passedEvents.isNotEmpty()) {
+                        // 未过期的保持原顺序，已过期的按剩余天数正序排列后放到末尾
+                        val sortedPassedEvents = passedEvents.sortedBy { event ->
+                            calculateDaysAfter(event.eventDate).second
+                        }
+
+                        val reorderedEvents = upcomingEvents + sortedPassedEvents
+
+                        // 重新分配sortOrder并保存到数据库
+                        val baseSortOrder = 1000
+                        val updatedEvents = reorderedEvents.mapIndexed { index, event ->
+                            event.copy(sortOrder = baseSortOrder - index)
+                        }
+
+                        // 保存新的排序到数据库
+                        dataManager.updateEventOrder(updatedEvents)
+                        events = updatedEvents
+
+                        // 保存今天的日期，避免重复排序
+                        dataManager.saveLastAutoSortDate(today.toString())
+
+                        Log.d("HomeScreen", "Events auto-sorted: ${newEvents.size} (upcoming: ${upcomingEvents.size}, passed: ${passedEvents.size})")
+                    } else {
+                        // 没有已过期事件，直接使用原顺序，但仍然记录日期
+                        events = newEvents
+                        dataManager.saveLastAutoSortDate(today.toString())
+                        Log.d("HomeScreen", "Events loaded: ${newEvents.size}, no expired events")
+                    }
+                } else {
+                    // 今天已经自动排序过，直接使用数据库中的顺序（保留用户手动排序）
+                    events = newEvents
+                    Log.d("HomeScreen", "Events loaded: ${newEvents.size}, using saved order")
                 }
-
-                // 显示顺序：未过期的在前，已过期的在后（各自保持原有sortOrder排序）
-                events = upcomingEvents + passedEvents
-
-                Log.d("HomeScreen", "Events loaded: ${newEvents.size} (upcoming: ${upcomingEvents.size}, passed: ${passedEvents.size})")
             } catch (e: Exception) {
                 Log.e("HomeScreen", "Failed to load events", e)
             } finally {

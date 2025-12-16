@@ -427,6 +427,23 @@ class DataManager(private val context: Context) {
         return getCurrentUser()?.id
     }
 
+    // 获取上次自动排序的日期
+    fun getLastAutoSortDate(): String? {
+        return sharedPreferences.getString("last_auto_sort_date", null)
+    }
+
+    // 保存自动排序日期
+    fun saveLastAutoSortDate(date: String) {
+        sharedPreferences.edit().putString("last_auto_sort_date", date).apply()
+    }
+
+    // 判断是否应该执行自动排序（日期是否变化）
+    fun shouldAutoSort(): Boolean {
+        val today = java.time.LocalDate.now().toString()
+        val lastSortDate = getLastAutoSortDate()
+        return lastSortDate != today
+    }
+
     // 麻将计分云端同步方法
     suspend fun saveMahjongScoreToCloud(
         recordTime: String,
