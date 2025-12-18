@@ -234,18 +234,18 @@ object LunarCalendarHelper {
     
     /**
      * 计算农历事件的准确倒计时天数，正确处理闰月影响
-     * 采用"当年剩余 + 次年到事件"的合计方式
+     * 统一逻辑：无论用户添加的是普通月还是闰月事件，都按照"普通月→闰月（如果有）→明年"的顺序提醒
      */
     fun calculateLunarCountdown(
         eventYear: Int,
-        eventMonth: Int, 
+        eventMonth: Int,
         eventDay: Int,
         isEventLeap: Boolean,
         currentDate: LocalDate
     ): Long {
         return try {
             val currentYear = currentDate.year
-            
+
             // 添加测试验证用户的分析
             if (currentYear == 2025 && eventMonth == 6 && eventDay == 16) {
                 try {
@@ -258,7 +258,7 @@ object LunarCalendarHelper {
                     Log.d("LunarTest", "2025年农历闰六月十六 -> $leap")
                     Log.d("LunarTest", "当前日期: $currentDate")
                     Log.d("LunarTest", "事件类型: ${if (isEventLeap) "闰月" else "普通月"}")
-                    
+
                     // 比较日期
                     val normalDate = LocalDate.parse(normal)
                     val leapDate = LocalDate.parse(leap)
@@ -268,30 +268,12 @@ object LunarCalendarHelper {
                     Log.e("LunarTest", "测试失败", e)
                 }
             }
-            
-            // 先尝试当年的事件日期
-            val thisYearEventDate = try {
-                val solarDate = lunarToSolar(currentYear, eventMonth, eventDay, isEventLeap)
-                Log.d("LunarCalendarHelper", "当年事件转换结果: 农历${currentYear}年${eventMonth}月${eventDay}日(闰月:$isEventLeap) -> 阳历$solarDate")
-                LocalDate.parse(solarDate)
-            } catch (e: Exception) {
-                Log.e("LunarCalendarHelper", "当年事件转换失败", e)
-                null
-            }
-            
-            // 如果当年事件日期有效且未过期，直接计算
-            if (thisYearEventDate != null && !thisYearEventDate.isBefore(currentDate)) {
-                val days = ChronoUnit.DAYS.between(currentDate, thisYearEventDate)
-                Log.d("LunarCalendarHelper", "当年事件未过期: $thisYearEventDate，剩余${days}天")
-                return days
-            } else {
-                Log.d("LunarCalendarHelper", "当年事件已过期或不存在: $thisYearEventDate，需要跨年计算")
-            }
-            
-            // 当年事件已过期或不存在，计算跨年天数
-            Log.d("LunarCalendarHelper", "开始跨年计算: 事件农历${eventMonth}月${eventDay}日(闰月:$isEventLeap)")
-            return calculateCrossYearLunarDays(currentDate, eventMonth, eventDay, isEventLeap)
-            
+
+            // 统一处理：不管用户添加的是普通月还是闰月，都按照"普通月→闰月→明年"的顺序检查
+            // 直接调用统一的计算方法
+            Log.d("LunarCalendarHelper", "开始统一农历计算: 事件农历${eventMonth}月${eventDay}日(用户添加类型: ${if (isEventLeap) "闰月" else "普通月"})")
+            return calculateUnifiedLunarEventDays(currentDate, eventMonth, eventDay)
+
         } catch (e: Exception) {
             Log.e("LunarCalendarHelper", "计算农历倒计时失败", e)
             365L
@@ -300,7 +282,7 @@ object LunarCalendarHelper {
     
     /**
      * 计算跨年农历天数：正确处理闰月对天数的影响
-     * 根据用户分析重构：普通月需包含闰月天数，闰月需找下一个对应年份
+     * 统一逻辑：无论用户添加的是普通月还是闰月事件，都按照"普通月→闰月（如果有）→明年"的顺序提醒
      */
     private fun calculateCrossYearLunarDays(
         currentDate: LocalDate,
@@ -309,21 +291,103 @@ object LunarCalendarHelper {
         isEventLeap: Boolean
     ): Long {
         val currentYear = currentDate.year
-        
+
         return try {
-            if (isEventLeap) {
-                // 闰月事件：找下一个有对应闰月的年份
-                calculateLeapMonthEventDays(currentDate, eventMonth, eventDay)
-            } else {
-                // 普通月事件：需要正确处理闰月影响
-                calculateNormalMonthEventDays(currentDate, eventMonth, eventDay)
-            }
+            // 统一处理：普通月和闰月事件都按照相同逻辑
+            // 先提醒普通月，普通月过后提醒闰月（如果有），都过后到明年
+            calculateUnifiedLunarEventDays(currentDate, eventMonth, eventDay)
         } catch (e: Exception) {
             Log.e("LunarCalendarHelper", "跨年计算失败", e)
             365L
         }
     }
     
+    /**
+     * 统一处理农历事件的倒计时逻辑
+     * 无论用户添加的是普通月还是闰月，都按照"普通月→闰月（如果有）→明年"的顺序
+     */
+    private fun calculateUnifiedLunarEventDays(
+        currentDate: LocalDate,
+        eventMonth: Int,
+        eventDay: Int
+    ): Long {
+        val currentYear = currentDate.year
+
+        try {
+            // 步骤1: 检查今年普通月事件是否还没到
+            val thisYearNormalEventDate = try {
+                val solarDate = lunarToSolar(currentYear, eventMonth, eventDay, false)
+                LocalDate.parse(solarDate)
+            } catch (e: Exception) {
+                Log.e("LunarCalendarHelper", "今年普通月转换失败", e)
+                null
+            }
+
+            if (thisYearNormalEventDate != null && !thisYearNormalEventDate.isBefore(currentDate)) {
+                // 今年普通月事件还没到，直接返回到普通月的天数
+                val daysToEvent = ChronoUnit.DAYS.between(currentDate, thisYearNormalEventDate)
+                Log.d("LunarCalendarHelper", "✅ 今年普通月未到: $thisYearNormalEventDate，还有${daysToEvent}天")
+                return daysToEvent
+            }
+
+            Log.d("LunarCalendarHelper", "⚠️ 今年普通月已过: $thisYearNormalEventDate，检查是否有闰月")
+
+            // 步骤2: 普通月已过，检查今年是否有对应的闰月
+            val thisYearLeapMonth = getLeapMonth(currentYear)
+            Log.d("LunarCalendarHelper", "📅 今年闰月: ${if (thisYearLeapMonth > 0) "${thisYearLeapMonth}月" else "无"}")
+
+            if (thisYearLeapMonth == eventMonth) {
+                // 今年有对应的闰月，检查闰月日期是否还没到
+                val thisYearLeapEventDate = try {
+                    val solarDate = lunarToSolar(currentYear, eventMonth, eventDay, true)
+                    LocalDate.parse(solarDate)
+                } catch (e: Exception) {
+                    Log.e("LunarCalendarHelper", "今年闰月转换失败", e)
+                    null
+                }
+
+                if (thisYearLeapEventDate != null && !thisYearLeapEventDate.isBefore(currentDate)) {
+                    // 闰月日期还没到，返回到闰月的天数
+                    val daysToLeapEvent = ChronoUnit.DAYS.between(currentDate, thisYearLeapEventDate)
+                    Log.d("LunarCalendarHelper", "✅ 今年闰月未到: $thisYearLeapEventDate，还有${daysToLeapEvent}天")
+                    return daysToLeapEvent
+                } else {
+                    Log.d("LunarCalendarHelper", "⚠️ 今年闰月已过: $thisYearLeapEventDate")
+                }
+            } else {
+                Log.d("LunarCalendarHelper", "⚠️ 今年没有对应的闰${eventMonth}月")
+            }
+
+            // 步骤3: 普通月和闰月都过了（或今年没有闰月），计算到明年普通月的天数
+            Log.d("LunarCalendarHelper", "📆 开始计算到明年普通月的天数")
+
+            val yearEnd = LocalDate.of(currentYear, 12, 31)
+            val daysToYearEnd = ChronoUnit.DAYS.between(currentDate, yearEnd) + 1
+            Log.d("LunarCalendarHelper", "今年剩余天数: $daysToYearEnd")
+
+            val nextYear = currentYear + 1
+            val nextYearEventDate = try {
+                val solarDate = lunarToSolar(nextYear, eventMonth, eventDay, false)
+                LocalDate.parse(solarDate)
+            } catch (e: Exception) {
+                Log.e("LunarCalendarHelper", "明年普通月转换失败", e)
+                LocalDate.of(nextYear, eventMonth.coerceIn(1, 12), eventDay.coerceIn(1, 28))
+            }
+
+            val daysToEventNextYear = ChronoUnit.DAYS.between(LocalDate.of(nextYear, 1, 1), nextYearEventDate)
+            val totalDays = daysToYearEnd + daysToEventNextYear
+
+            Log.d("LunarCalendarHelper", "✅ 跨年计算: 今年剩余${daysToYearEnd}天 + 明年到事件${daysToEventNextYear}天 = 总计${totalDays}天")
+            Log.d("LunarCalendarHelper", "明年事件日期: $nextYearEventDate")
+
+            return totalDays
+
+        } catch (e: Exception) {
+            Log.e("LunarCalendarHelper", "统一农历计算失败", e)
+            return 365L
+        }
+    }
+
     /**
      * 计算闰月事件的跨年天数
      * 今年闰月未到：直接返回剩余天数

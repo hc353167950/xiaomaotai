@@ -144,6 +144,74 @@ class NetworkDataManager {
     init {
         Log.d("NetworkDataManager", "NetworkDataManager 初始化完成")
     }
+
+    /**
+     * 统一的网络错误处理
+     * 将技术性错误转换为用户友好的提示信息
+     */
+    private fun handleNetworkError(e: Exception, operation: String): Exception {
+        Log.e("NetworkDataManager", "$operation 失败: ${e.message}")
+        e.printStackTrace()
+
+        val friendlyMessage = when {
+            // 网络连接问题
+            e.message?.contains("network", ignoreCase = true) == true ||
+            e.message?.contains("timeout", ignoreCase = true) == true ||
+            e.message?.contains("connection", ignoreCase = true) == true ||
+            e.message?.contains("UnknownHostException", ignoreCase = true) == true ||
+            e.message?.contains("SocketException", ignoreCase = true) == true ||
+            e.message?.contains("ConnectException", ignoreCase = true) == true -> {
+                "网络连接失败，请检查网络后重试"
+            }
+
+            // 认证问题
+            e.message?.contains("unauthorized", ignoreCase = true) == true ||
+            e.message?.contains("401", ignoreCase = true) == true -> {
+                "登录已过期，请重新登录"
+            }
+
+            // 权限问题
+            e.message?.contains("forbidden", ignoreCase = true) == true ||
+            e.message?.contains("403", ignoreCase = true) == true ||
+            e.message?.contains("row-level security", ignoreCase = true) == true -> {
+                "操作权限不足，请重新登录"
+            }
+
+            // 数据冲突
+            e.message?.contains("duplicate", ignoreCase = true) == true ||
+            e.message?.contains("unique constraint", ignoreCase = true) == true -> {
+                "数据已存在，请勿重复操作"
+            }
+
+            // 数据不存在
+            e.message?.contains("not found", ignoreCase = true) == true ||
+            e.message?.contains("404", ignoreCase = true) == true -> {
+                "数据不存在或已被删除"
+            }
+
+            // 服务器错误
+            e.message?.contains("500", ignoreCase = true) == true ||
+            e.message?.contains("502", ignoreCase = true) == true ||
+            e.message?.contains("503", ignoreCase = true) == true ||
+            e.message?.contains("server", ignoreCase = true) == true -> {
+                "服务器繁忙，请稍后重试"
+            }
+
+            // 数据格式错误
+            e.message?.contains("parse", ignoreCase = true) == true ||
+            e.message?.contains("json", ignoreCase = true) == true ||
+            e.message?.contains("serialization", ignoreCase = true) == true -> {
+                "数据格式错误，请更新APP后重试"
+            }
+
+            // 默认错误
+            else -> {
+                "${operation}失败，请稍后重试"
+            }
+        }
+
+        return Exception(friendlyMessage)
+    }
     
     // 测试云端连接
     suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
@@ -155,13 +223,11 @@ class NetworkDataManager {
                     limit(1)
                 }
                 .decodeList<UserResponse>()
-            
+
             Log.d("NetworkDataManager", "云端连接测试成功，响应数据: ${response.size}条记录")
             Result.success("连接成功")
         } catch (e: Exception) {
-            Log.e("NetworkDataManager", "云端连接测试失败: ${e.message}")
-            Log.e("NetworkDataManager", "完整错误堆栈: ", e)
-            Result.failure(e)
+            Result.failure(handleNetworkError(e, "连接测试"))
         }
     }
 
@@ -257,9 +323,7 @@ class NetworkDataManager {
                     Result.failure(Exception("账号或密码错误"))
                 }
             } catch (e: Exception) {
-                Log.e("NetworkDataManager", "登录失败: ${e.message}")
-                e.printStackTrace()
-                Result.failure(e)
+                Result.failure(handleNetworkError(e, "登录"))
             }
         }
     }
@@ -295,9 +359,7 @@ class NetworkDataManager {
                 Log.d("NetworkDataManager", "转换后的事件列表: $events")
                 Result.success(events)
             } catch (e: Exception) {
-                Log.e("NetworkDataManager", "获取事件失败: ${e.message}")
-                e.printStackTrace()
-                Result.failure(e)
+                Result.failure(handleNetworkError(e, "获取事件"))
             }
         }
     }
@@ -324,9 +386,7 @@ class NetworkDataManager {
                 Log.d("NetworkDataManager", "事件保存成功")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e("NetworkDataManager", "保存事件失败: ${e.message}")
-                e.printStackTrace()
-                Result.failure(e)
+                Result.failure(handleNetworkError(e, "保存事件"))
             }
         }
     }
@@ -362,9 +422,7 @@ class NetworkDataManager {
                 Log.d("NetworkDataManager", "事件更新成功")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e("NetworkDataManager", "更新事件失败: ${e.message}")
-                e.printStackTrace()
-                Result.failure(e)
+                Result.failure(handleNetworkError(e, "更新事件"))
             }
         }
     }
@@ -378,7 +436,7 @@ class NetworkDataManager {
                 }
 
                 Log.d("NetworkDataManager", "更新事件状态: eventId=$eventId, status=${status.value}")
-                
+
                 // 直接使用数据库语法更新状态
                 supabase.postgrest["events"]
                     .update(mapOf("status" to status.value)) {
@@ -390,9 +448,7 @@ class NetworkDataManager {
                 Log.d("NetworkDataManager", "事件状态更新成功")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e("NetworkDataManager", "更新事件状态失败: ${e.message}")
-                e.printStackTrace()
-                Result.failure(e)
+                Result.failure(handleNetworkError(e, "更新事件状态"))
             }
         }
     }
@@ -588,7 +644,7 @@ class NetworkDataManager {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d("NetworkDataManager", "开始批量更新事件排序: ${events.size} 个事件")
-                
+
                 // 批量更新每个事件的排序
                 for (event in events) {
                     val updateData = mapOf("sort_order" to event.sortOrder)
@@ -600,13 +656,11 @@ class NetworkDataManager {
                             }
                         }
                 }
-                
+
                 Log.d("NetworkDataManager", "事件排序更新成功")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e("NetworkDataManager", "更新事件排序失败: ${e.message}")
-                e.printStackTrace()
-                Result.failure(e)
+                Result.failure(handleNetworkError(e, "更新事件排序"))
             }
         }
     }
@@ -655,7 +709,7 @@ class NetworkDataManager {
         try {
             Log.d("NetworkDataManager", "开始保存麻将计分记录到云端")
             Log.d("NetworkDataManager", "参数: userId=$userId, recordTime=$recordTime, winnerPosition=$winnerPosition")
-            
+
             val mahjongScoreData = MahjongScoreCloudData(
                 userId = userId,
                 recordTime = recordTime,
@@ -665,37 +719,18 @@ class NetworkDataManager {
                 calculationDetail = calculationDetail,
                 finalAmounts = finalAmounts
             )
-            
+
             Log.d("NetworkDataManager", "准备插入数据到mahjong_scores表")
             val response = supabase.postgrest["mahjong_scores"].insert(mahjongScoreData)
             Log.d("NetworkDataManager", "插入操作完成，响应: $response")
-            
+
             Log.d("NetworkDataManager", "麻将计分记录保存成功")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("NetworkDataManager", "保存麻将计分记录失败: ${e.message}")
-            Log.e("NetworkDataManager", "错误类型: ${e.javaClass.simpleName}")
-            Log.e("NetworkDataManager", "完整错误堆栈: ", e)
-            
-            // 检查是否是网络问题
-            if (e.message?.contains("network", ignoreCase = true) == true ||
-                e.message?.contains("connection", ignoreCase = true) == true ||
-                e.message?.contains("timeout", ignoreCase = true) == true) {
-                Log.e("NetworkDataManager", "检测到网络相关错误")
-            }
-            
-            // 检查是否是认证问题
-            if (e.message?.contains("auth", ignoreCase = true) == true ||
-                e.message?.contains("unauthorized", ignoreCase = true) == true ||
-                e.message?.contains("403", ignoreCase = true) == true ||
-                e.message?.contains("401", ignoreCase = true) == true) {
-                Log.e("NetworkDataManager", "检测到认证相关错误")
-            }
-            
-            Result.failure(e)
+            Result.failure(handleNetworkError(e, "保存麻将计分"))
         }
     }
-    
+
     // 获取云端麻将计分记录（最近20条）
     suspend fun getMahjongScores(userId: String): Result<List<MahjongScoreCloudResponse>> = withContext(Dispatchers.IO) {
         try {
@@ -708,15 +743,14 @@ class NetworkDataManager {
                     limit(20)
                 }
                 .decodeList<MahjongScoreCloudResponse>()
-            
+
             Log.d("NetworkDataManager", "获取麻将计分记录成功: ${response.size}条")
             Result.success(response)
         } catch (e: Exception) {
-            Log.e("NetworkDataManager", "获取麻将计分记录失败: ${e.message}")
-            Result.failure(e)
+            Result.failure(handleNetworkError(e, "获取麻将计分记录"))
         }
     }
-    
+
     // 删除云端麻将计分记录
     suspend fun deleteMahjongScore(userId: String, recordId: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -729,11 +763,10 @@ class NetworkDataManager {
             Log.d("NetworkDataManager", "删除麻将计分记录成功")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("NetworkDataManager", "删除麻将计分记录失败: ${e.message}")
-            Result.failure(e)
+            Result.failure(handleNetworkError(e, "删除麻将计分记录"))
         }
     }
-    
+
     // 清空用户的所有云端麻将计分记录
     suspend fun clearAllMahjongScores(userId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -745,8 +778,7 @@ class NetworkDataManager {
             Log.d("NetworkDataManager", "清空麻将计分记录成功")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("NetworkDataManager", "清空麻将计分记录失败: ${e.message}")
-            Result.failure(e)
+            Result.failure(handleNetworkError(e, "清空麻将计分记录"))
         }
     }
 }

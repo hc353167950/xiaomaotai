@@ -28,6 +28,8 @@ class DataManager(private val context: Context) {
         if (result.isSuccess) {
             val user = result.getOrNull()!!
             saveUserLocally(user)
+            // 保存上次登录的用户名
+            saveLastUsername(username)
             // 登录成功后拉取用户数据并同步本地数据
             loadUserData(user.id)
             // 同步离线数据到数据库
@@ -114,9 +116,15 @@ class DataManager(private val context: Context) {
                 ).withAutoDetectedType() // 自动检测并设置事件类型
                 val result = networkDataManager.saveEvent(eventToSave, currentUser.id)
                 if (result.isSuccess) {
-                    Log.d(TAG, "Event saved to network. Refreshing data.")
-                    loadUserData(currentUser.id)
+                    Log.d(TAG, "Event saved to network.")
+                    // 关键修复：先立即将新事件添加到本地缓存
+                    localEvents = localEvents + eventToSave
+                    saveEventsLocally(localEvents)
                     reminderManager.scheduleReminder(eventToSave)
+                    // 触发常驻通知更新（此时本地数据已包含新事件）
+                    updatePersistentNotificationIfEnabled()
+                    // 然后异步从服务器刷新最新数据（确保与服务器同步，包括服务器生成的ID）
+                    loadUserData(currentUser.id)
                 } else {
                     Log.e(TAG, "Failed to save event to network: ${result.exceptionOrNull()?.message}")
                 }
@@ -133,6 +141,8 @@ class DataManager(private val context: Context) {
             offlineEvents = offlineEvents + offlineEvent
             saveOfflineEventsLocally(offlineEvents)
             reminderManager.scheduleReminder(offlineEvent)
+            // 触发常驻通知更新
+            updatePersistentNotificationIfEnabled()
         }
     }
 
@@ -151,6 +161,8 @@ class DataManager(private val context: Context) {
                     localEvents = localEvents.map { if (it.id == eventToUpdate.id) eventToUpdate else it }
                     saveEventsLocally(localEvents) // 保存到SharedPreferences
                     reminderManager.updateReminder(eventToUpdate)
+                    // 触发常驻通知更新
+                    updatePersistentNotificationIfEnabled()
                 } else {
                     Log.e(TAG, "Failed to update event on network: ${result.exceptionOrNull()?.message}")
                 }
@@ -163,6 +175,8 @@ class DataManager(private val context: Context) {
             offlineEvents = offlineEvents.map { if (it.id == updatedEvent.id) updatedEvent else it }
             saveOfflineEventsLocally(offlineEvents)
             reminderManager.updateReminder(updatedEvent)
+            // 触发常驻通知更新
+            updatePersistentNotificationIfEnabled()
         }
     }
 
@@ -173,15 +187,23 @@ class DataManager(private val context: Context) {
                 // 直接使用数据库语法更新状态为已删除
                 val result = networkDataManager.updateEventStatus(eventId, EventStatus.DELETED)
                 if (result.isSuccess) {
-                    Log.d(TAG, "Event marked as deleted in database. Refreshing data.")
-                    getCurrentUser()?.let { loadUserData(it.id) }
+                    Log.d(TAG, "Event marked as deleted in database.")
+                    // 关键修复：先立即从本地缓存中删除，确保通知更新时能获取到正确的数据
+                    localEvents = localEvents.filter { it.id != eventId }
+                    saveEventsLocally(localEvents)
                     reminderManager.cancelReminder(eventId)
+                    // 触发常驻通知更新（此时本地数据已更新）
+                    updatePersistentNotificationIfEnabled()
+                    // 然后异步从服务器刷新最新数据（确保与服务器同步）
+                    getCurrentUser()?.let { loadUserData(it.id) }
                 } else {
                     Log.e(TAG, "Failed to mark event as deleted: ${result.exceptionOrNull()?.message}")
                     // 如果网络更新失败，直接从本地列表移除
                     localEvents = localEvents.filter { it.id != eventId }
                     saveEventsLocally(localEvents)
                     reminderManager.cancelReminder(eventId)
+                    // 触发常驻通知更新
+                    updatePersistentNotificationIfEnabled()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Exception while deleting event: ${e.message}")
@@ -189,12 +211,16 @@ class DataManager(private val context: Context) {
                 localEvents = localEvents.filter { it.id != eventId }
                 saveEventsLocally(localEvents)
                 reminderManager.cancelReminder(eventId)
+                // 触发常驻通知更新
+                updatePersistentNotificationIfEnabled()
             }
         } else {
             Log.d(TAG, "Deleting event from offline cache.")
             offlineEvents = offlineEvents.filter { it.id != eventId }
             saveOfflineEventsLocally(offlineEvents)
             reminderManager.cancelReminder(eventId)
+            // 触发常驻通知更新
+            updatePersistentNotificationIfEnabled()
         }
     }
 
@@ -218,19 +244,19 @@ class DataManager(private val context: Context) {
     // 本地方法
     private fun saveUserLocally(user: User) {
         val userJson = gson.toJson(user)
-        sharedPreferences.edit().putString("current_user", userJson).apply()
+        sharedPreferences.edit().putString("current_user", userJson).commit()
         // 保存上次登录的账号
-        sharedPreferences.edit().putString("last_login_username", user.username).apply()
+        sharedPreferences.edit().putString("last_login_username", user.username).commit()
     }
 
     private fun saveEventsLocally(events: List<Event>) {
         val eventsJson = gson.toJson(events)
-        sharedPreferences.edit().putString("local_events", eventsJson).apply()
+        sharedPreferences.edit().putString("local_events", eventsJson).commit()
     }
 
     private fun saveOfflineEventsLocally(events: List<Event>) {
         val eventsJson = gson.toJson(events)
-        sharedPreferences.edit().putString("offline_events", eventsJson).apply()
+        sharedPreferences.edit().putString("offline_events", eventsJson).commit()
     }
 
     private fun loadEventsLocally(): List<Event> {
@@ -266,7 +292,7 @@ class DataManager(private val context: Context) {
     }
 
     private fun clearOfflineEvents() {
-        sharedPreferences.edit().remove("offline_events").apply()
+        sharedPreferences.edit().remove("offline_events").commit()
         offlineEvents = emptyList()
     }
 
@@ -288,7 +314,7 @@ class DataManager(private val context: Context) {
             .remove("current_user")
             .remove("local_events")
             .remove("offline_events") // 同时清除离线事件缓存
-            .apply()
+            .commit()
         localEvents = emptyList()
         offlineEvents = emptyList() // 清空离线事件列表
     }
@@ -346,7 +372,7 @@ class DataManager(private val context: Context) {
      * 记录通知权限提示时间
      */
     fun recordNotificationPromptTime() {
-        sharedPreferences.edit().putLong("last_notification_prompt", System.currentTimeMillis()).apply()
+        sharedPreferences.edit().putLong("last_notification_prompt", System.currentTimeMillis()).commit()
     }
 
     /**
@@ -427,21 +453,41 @@ class DataManager(private val context: Context) {
         return getCurrentUser()?.id
     }
 
-    // 获取上次自动排序的日期
-    fun getLastAutoSortDate(): String? {
-        return sharedPreferences.getString("last_auto_sort_date", null)
+    // 隐藏最近任务设置
+    fun isHideRecentTaskEnabled(): Boolean {
+        return sharedPreferences.getBoolean("hide_recent_task", false)
     }
 
-    // 保存自动排序日期
-    fun saveLastAutoSortDate(date: String) {
-        sharedPreferences.edit().putString("last_auto_sort_date", date).apply()
+    fun setHideRecentTask(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("hide_recent_task", enabled).commit()
     }
 
-    // 判断是否应该执行自动排序（日期是否变化）
-    fun shouldAutoSort(): Boolean {
-        val today = java.time.LocalDate.now().toString()
-        val lastSortDate = getLastAutoSortDate()
-        return lastSortDate != today
+    // 常驻通知设置
+    fun isPersistentNotificationEnabled(): Boolean {
+        return sharedPreferences.getBoolean("persistent_notification", false)
+    }
+
+    fun setPersistentNotification(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("persistent_notification", enabled).commit()
+    }
+
+    // 自动排序过期事件设置
+    fun isAutoSortExpiredEventsEnabled(): Boolean {
+        return sharedPreferences.getBoolean("auto_sort_expired_events", true) // 默认开启
+    }
+
+    fun setAutoSortExpiredEvents(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("auto_sort_expired_events", enabled).commit()
+    }
+
+    // 保存上次登录的用户名
+    fun saveLastUsername(username: String) {
+        sharedPreferences.edit().putString("last_login_username", username).commit()
+    }
+
+    // 获取上次登录的用户名
+    fun getLastUsername(): String {
+        return sharedPreferences.getString("last_login_username", "") ?: ""
     }
 
     // 麻将计分云端同步方法
@@ -468,6 +514,21 @@ class DataManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save mahjong score to cloud", e)
+        }
+    }
+
+    /**
+     * 如果常驻通知已开启，则触发通知内容更新
+     * 用于 CRUD 操作后立即反映数据变化
+     */
+    private fun updatePersistentNotificationIfEnabled() {
+        try {
+            if (isPersistentNotificationEnabled()) {
+                PersistentNotificationService.updateNotification(context)
+                Log.d(TAG, "已触发常驻通知更新")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "触发常驻通知更新失败: ${e.message}")
         }
     }
 

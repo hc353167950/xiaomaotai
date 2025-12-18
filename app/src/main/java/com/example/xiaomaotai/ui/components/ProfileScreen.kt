@@ -467,7 +467,8 @@ fun LoginScreen(
     onSwitchToRegister: () -> Unit,
     onNavigateToForgotPassword: () -> Unit
 ) {
-    var username by remember { mutableStateOf("") }
+    // 读取上次登录的用户名
+    var username by remember { mutableStateOf(dataManager.getLastUsername()) }
     var password by remember { mutableStateOf("") }
     var usernameError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }

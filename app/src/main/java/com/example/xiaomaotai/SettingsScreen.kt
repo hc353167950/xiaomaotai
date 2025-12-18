@@ -1,5 +1,7 @@
 package com.example.xiaomaotai
 
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.LifecycleOwner
+
+// 用于常驻通知功能
+// ReminderForegroundService 会在 SettingsScreen 的常驻通知开关中使用
 
 @Composable
 fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
@@ -54,6 +59,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
     }
     
     // 当页面重新获得焦点时刷新权限状态
+    // 注意：隐藏最近任务的恢复逻辑已在 MainActivity.onResume() 中统一处理
     DisposableEffect(Unit) {
         val lifecycleOwner = context as androidx.lifecycle.LifecycleOwner
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -116,7 +122,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                                 putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                             }
-                            context.startActivity(intent)
+                            safeStartSettingsActivity(context, intent)
                         },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -131,19 +137,19 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         Text(
                             text = if (permissionSummary.hasNotification) "已启用" else "已禁用",
                             fontSize = 13.sp,
-                            color = if (permissionSummary.hasNotification) 
-                                MaterialTheme.colorScheme.primary 
-                            else 
+                            color = if (permissionSummary.hasNotification)
+                                MaterialTheme.colorScheme.primary
+                            else
                                 MaterialTheme.colorScheme.error
                         )
                     }
                     Switch(
                         checked = permissionSummary.hasNotification,
-                        onCheckedChange = { 
+                        onCheckedChange = {
                             val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                                 putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                             }
-                            context.startActivity(intent)
+                            safeStartSettingsActivity(context, intent)
                         }
                     )
                 }
@@ -175,18 +181,18 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                 } else {
                                     permissionManager.getExactAlarmSettingsIntent()
                                 }
-                                context.startActivity(intent)
+                                safeStartSettingsActivity(context, intent)
                             } catch (e: Exception) {
                                 // 备选方案：标准设置页面
                                 try {
                                     val intent = permissionManager.getExactAlarmSettingsIntent()
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 } catch (e2: Exception) {
                                     // 最终备选：应用详情页
                                     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                         data = android.net.Uri.parse("package:${context.packageName}")
                                     }
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 }
                             }
                         },
@@ -221,18 +227,18 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                 } else {
                                     permissionManager.getExactAlarmSettingsIntent()
                                 }
-                                context.startActivity(intent)
+                                safeStartSettingsActivity(context, intent)
                             } catch (e: Exception) {
                                 // 备选方案：标准设置页面
                                 try {
                                     val intent = permissionManager.getExactAlarmSettingsIntent()
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 } catch (e2: Exception) {
                                     // 最终备选：应用详情页
                                     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                         data = android.net.Uri.parse("package:${context.packageName}")
                                     }
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 }
                             }
                         }
@@ -268,13 +274,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         onClick = {
                             try {
                                 val intent = permissionManager.getExactAlarmSettingsIntent()
-                                context.startActivity(intent)
+                                safeStartSettingsActivity(context, intent)
                             } catch (e: Exception) {
                                 // 如果标准方式失败，尝试应用详情页
                                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                     data = android.net.Uri.parse("package:${context.packageName}")
                                 }
-                                context.startActivity(intent)
+                                safeStartSettingsActivity(context, intent)
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -289,13 +295,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             onClick = {
                                 try {
                                     val intent = permissionManager.getVendorSpecificAlarmSettingsIntent()
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 } catch (e: Exception) {
                                     // 备选方案
                                     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                         data = android.net.Uri.parse("package:${context.packageName}")
                                     }
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -308,10 +314,10 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             onClick = {
                                 try {
                                     val intent = permissionManager.getSystemAlarmSettingsIntent()
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 } catch (e: Exception) {
                                     val intent = Intent(Settings.ACTION_SETTINGS)
-                                    context.startActivity(intent)
+                                    safeStartSettingsActivity(context, intent)
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -359,8 +365,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 }
             }
         }
-        
-        // 电池优化白名单设置
+
+        // 电池优化白名单设置（允许后台运行）
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -378,50 +384,20 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         .fillMaxWidth()
                         .clickable {
                             // 点击整行跳转到电池优化设置
-                            val permissionManager = PermissionManager(context)
-
-                            if (permissionSummary.isIgnoringBatteryOptimization) {
-                                // 已允许后台运行，点击后跳转到列表页面让用户手动取消
+                            try {
+                                val intent = permissionManager.getBatteryOptimizationSettingsIntent()
+                                safeStartSettingsActivity(context, intent)
+                            } catch (e: Exception) {
+                                // 备选：应用详情页
                                 try {
-                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    // 备选：应用详情页
-                                    try {
-                                        val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = android.net.Uri.parse("package:${context.packageName}")
-                                        }
-                                        context.startActivity(appSettingsIntent)
-                                    } catch (e2: Exception) {
-                                        // 最终备选：系统设置
-                                        val settingsIntent = Intent(Settings.ACTION_SETTINGS)
-                                        context.startActivity(settingsIntent)
+                                    val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
                                     }
-                                }
-                            } else {
-                                // 未允许后台运行，点击后弹出授权对话框
-                                try {
-                                    // 优先尝试直接请求权限（会弹出系统对话框）
-                                    val intent = permissionManager.getBatteryOptimizationSettingsIntent()
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    // 如果直接请求失败，跳转到电池优化列表页面
-                                    try {
-                                        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                        context.startActivity(fallbackIntent)
-                                    } catch (e2: Exception) {
-                                        // 国产手机可能需要跳转到应用详情页手动设置
-                                        try {
-                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                data = android.net.Uri.parse("package:${context.packageName}")
-                                            }
-                                            context.startActivity(appSettingsIntent)
-                                        } catch (e3: Exception) {
-                                            // 最终备选：系统设置
-                                            val settingsIntent = Intent(Settings.ACTION_SETTINGS)
-                                            context.startActivity(settingsIntent)
-                                        }
-                                    }
+                                    safeStartSettingsActivity(context, appSettingsIntent)
+                                } catch (e2: Exception) {
+                                    // 最终备选：系统设置
+                                    val settingsIntent = Intent(Settings.ACTION_SETTINGS)
+                                    safeStartSettingsActivity(context, settingsIntent)
                                 }
                             }
                         },
@@ -452,50 +428,20 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                         checked = permissionSummary.isIgnoringBatteryOptimization,
                         onCheckedChange = {
                             // 点击Switch时跳转到电池优化设置
-                            val permissionManager = PermissionManager(context)
-
-                            if (permissionSummary.isIgnoringBatteryOptimization) {
-                                // 已允许后台运行，点击后跳转到列表页面让用户手动取消
+                            try {
+                                val intent = permissionManager.getBatteryOptimizationSettingsIntent()
+                                safeStartSettingsActivity(context, intent)
+                            } catch (e: Exception) {
+                                // 备选：应用详情页
                                 try {
-                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    // 备选：应用详情页
-                                    try {
-                                        val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            data = android.net.Uri.parse("package:${context.packageName}")
-                                        }
-                                        context.startActivity(appSettingsIntent)
-                                    } catch (e2: Exception) {
-                                        // 最终备选：系统设置
-                                        val settingsIntent = Intent(Settings.ACTION_SETTINGS)
-                                        context.startActivity(settingsIntent)
+                                    val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = android.net.Uri.parse("package:${context.packageName}")
                                     }
-                                }
-                            } else {
-                                // 未允许后台运行，点击后弹出授权对话框
-                                try {
-                                    // 优先尝试直接请求权限（会弹出系统对话框）
-                                    val intent = permissionManager.getBatteryOptimizationSettingsIntent()
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    // 如果直接请求失败，跳转到电池优化列表页面
-                                    try {
-                                        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                        context.startActivity(fallbackIntent)
-                                    } catch (e2: Exception) {
-                                        // 国产手机可能需要跳转到应用详情页手动设置
-                                        try {
-                                            val appSettingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                                data = android.net.Uri.parse("package:${context.packageName}")
-                                            }
-                                            context.startActivity(appSettingsIntent)
-                                        } catch (e3: Exception) {
-                                            // 最终备选：系统设置
-                                            val settingsIntent = Intent(Settings.ACTION_SETTINGS)
-                                            context.startActivity(settingsIntent)
-                                        }
-                                    }
+                                    safeStartSettingsActivity(context, appSettingsIntent)
+                                } catch (e2: Exception) {
+                                    // 最终备选：系统设置
+                                    val settingsIntent = Intent(Settings.ACTION_SETTINGS)
+                                    safeStartSettingsActivity(context, settingsIntent)
                                 }
                             }
                         }
@@ -504,8 +450,185 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
 
+        // 隐藏最近任务设置
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            val dataManager = remember { DataManager(context) }
+            var hideRecentTask by remember { mutableStateOf(dataManager.isHideRecentTaskEnabled()) }
 
-        
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            hideRecentTask = !hideRecentTask
+                            dataManager.setHideRecentTask(hideRecentTask)
+
+                            // 立即应用设置
+                            applyHideRecentTaskSetting(context, hideRecentTask)
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "隐藏最近任务",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (hideRecentTask) "已开启，APP不会显示在最近任务列表" else "已关闭",
+                            fontSize = 13.sp,
+                            color = if (hideRecentTask)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = hideRecentTask,
+                        onCheckedChange = {
+                            hideRecentTask = it
+                            dataManager.setHideRecentTask(it)
+
+                            // 立即应用设置
+                            applyHideRecentTaskSetting(context, it)
+                        }
+                    )
+                }
+            }
+        }
+
+        // 常驻通知设置
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            val dataManager = remember { DataManager(context) }
+            var persistentNotification by remember { mutableStateOf(dataManager.isPersistentNotificationEnabled()) }
+
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            persistentNotification = !persistentNotification
+                            dataManager.setPersistentNotification(persistentNotification)
+
+                            // 立即启动或停止服务
+                            // 方案B：PersistentNotificationService已包含智能保活功能
+                            // 不需要单独管理ReminderForegroundService
+                            if (persistentNotification) {
+                                PersistentNotificationService.startService(context)
+                            } else {
+                                PersistentNotificationService.stopService(context)
+                            }
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "常驻通知",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (persistentNotification) "已开启，通知栏显示常驻通知" else "已关闭",
+                            fontSize = 13.sp,
+                            color = if (persistentNotification)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = persistentNotification,
+                        onCheckedChange = {
+                            persistentNotification = it
+                            dataManager.setPersistentNotification(it)
+
+                            // 立即启动或停止服务
+                            // 方案B：PersistentNotificationService已包含智能保活功能
+                            // 不需要单独管理ReminderForegroundService
+                            if (it) {
+                                PersistentNotificationService.startService(context)
+                            } else {
+                                PersistentNotificationService.stopService(context)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        // 自动排序过期事件设置
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            val dataManager = remember { DataManager(context) }
+            var autoSortExpired by remember { mutableStateOf(dataManager.isAutoSortExpiredEventsEnabled()) }
+
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            autoSortExpired = !autoSortExpired
+                            dataManager.setAutoSortExpiredEvents(autoSortExpired)
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "自动排序过期事件",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (autoSortExpired) "已开启，过期事件自动排到末尾" else "已关闭，完全按手动排序",
+                            fontSize = 13.sp,
+                            color = if (autoSortExpired)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = autoSortExpired,
+                        onCheckedChange = {
+                            autoSortExpired = it
+                            dataManager.setAutoSortExpiredEvents(it)
+                        }
+                    )
+                }
+            }
+        }
+
+
+
         // 提醒时间说明 - 重新设计为提示区域样式
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -633,4 +756,48 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         }
         } // 结束主要内容区域的Column
     } // 结束Box
+}
+
+/**
+ * 立即应用隐藏最近任务设置
+ */
+private fun applyHideRecentTaskSetting(context: Context, enable: Boolean) {
+    try {
+        val activity = context as? android.app.Activity ?: return
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            val tasks = activityManager.appTasks
+            if (tasks.isNotEmpty()) {
+                tasks[0].setExcludeFromRecents(enable)
+                android.util.Log.d("SettingsScreen", "隐藏最近任务设置已立即应用: $enable")
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("SettingsScreen", "应用隐藏最近任务设置失败: ${e.message}")
+    }
+}
+
+/**
+ * 安全启动系统设置页面
+ * 在跳转前设置标记，避免 onStop 中的 moveTaskToBack 导致APP被回收
+ */
+private fun safeStartSettingsActivity(context: Context, intent: Intent) {
+    try {
+        val dataManager = DataManager(context)
+        val isHideEnabled = dataManager.isHideRecentTaskEnabled()
+
+        // 如果开启了隐藏最近任务，设置标记避免 onStop 中回收
+        if (isHideEnabled) {
+            MainActivity.isNavigatingToSettings = true
+            android.util.Log.d("SettingsScreen", "跳转设置前设置标记，避免APP被回收")
+        }
+
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        // 发生异常时重置标记
+        MainActivity.isNavigatingToSettings = false
+        android.util.Log.e("SettingsScreen", "启动设置页面失败: ${e.message}")
+        throw e
+    }
 }

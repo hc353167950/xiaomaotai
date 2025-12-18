@@ -34,8 +34,16 @@ class ReminderForegroundService : Service() {
         
         /**
          * 启动前台服务
+         * 如果已开启常驻通知，则跳过启动（避免重复通知）
          */
         fun startService(context: Context) {
+            // 检查是否已开启常驻通知
+            val dataManager = DataManager(context)
+            if (dataManager.isPersistentNotificationEnabled()) {
+                Log.d("ReminderForegroundService", "常驻通知已开启，跳过启动保活服务")
+                return
+            }
+
             val intent = Intent(context, ReminderForegroundService::class.java).apply {
                 action = ACTION_START_SERVICE
             }

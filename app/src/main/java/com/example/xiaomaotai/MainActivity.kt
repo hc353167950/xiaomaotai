@@ -2,6 +2,8 @@ package com.example.xiaomaotai
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -89,8 +91,11 @@ class MainActivity : ComponentActivity() {
         fun resetLoginTipOnLogin() {
             isLoginTipDismissedForSession = true
         }
+
+        // 标记：是否正在跳转到系统设置页（临时禁用隐藏最近任务）
+        var isNavigatingToSettings = false
     }
-    
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
@@ -128,10 +133,97 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     dataManager.initializeLocalData()
+
+                    // 检查并应用隐藏最近任务设置
+                    handleHideRecentTask(dataManager)
+
+                    // 检查并启动常驻通知服务
+                    handlePersistentNotification(dataManager)
                 }
 
                 MainApp(dataManager = dataManager)
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        val dataManager = DataManager(this)
+
+        // 如果开启了隐藏最近任务，在APP进入后台时从最近任务列表中移除（不杀掉APP）
+        // 但如果正在跳转到系统设置页，则跳过此操作，避免APP被回收
+        if (dataManager.isHideRecentTaskEnabled() && !isNavigatingToSettings) {
+            moveTaskToBack(true)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val dataManager = DataManager(this)
+
+        // 从设置页返回，重置标记
+        isNavigatingToSettings = false
+
+        // 每次恢复时检查设置
+        handleHideRecentTask(dataManager)
+        handlePersistentNotification(dataManager)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        // 只在Activity真正退出时停止常驻通知服务
+        // isFinishing为true表示Activity正在结束（用户退出），为false表示配置更改（如旋转屏幕）
+        if (isFinishing) {
+            val dataManager = DataManager(this)
+            // 如果开启了常驻通知，在APP退出时停止服务
+            if (dataManager.isPersistentNotificationEnabled()) {
+                PersistentNotificationService.stopService(this)
+                Log.d("MainActivity", "APP退出，停止常驻通知服务")
+            }
+        }
+    }
+
+    /**
+     * 处理隐藏最近任务设置
+     * 动态设置Activity的excludeFromRecents属性
+     */
+    private fun handleHideRecentTask(dataManager: DataManager) {
+        try {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            if (dataManager.isHideRecentTaskEnabled()) {
+                // 开启隐藏：设置excludeFromRecents标志
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    // 通过反射设置excludeFromRecents
+                    val tasks = activityManager.appTasks
+                    if (tasks.isNotEmpty()) {
+                        tasks[0].setExcludeFromRecents(true)
+                    }
+                }
+            } else {
+                // 关闭隐藏：取消excludeFromRecents标志
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    val tasks = activityManager.appTasks
+                    if (tasks.isNotEmpty()) {
+                        tasks[0].setExcludeFromRecents(false)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "设置隐藏最近任务失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 处理常驻通知设置
+     */
+    private fun handlePersistentNotification(dataManager: DataManager) {
+        if (dataManager.isPersistentNotificationEnabled()) {
+            // 启动常驻通知服务
+            PersistentNotificationService.startService(this)
+        } else {
+            // 停止常驻通知服务
+            PersistentNotificationService.stopService(this)
         }
     }
 
@@ -606,9 +698,8 @@ fun HomeScreen(
                         val month = parts[0].toInt()
                         val day = parts[1].toInt()
                         val thisYearDate = java.time.LocalDate.of(today.year, month, day)
-                        // 今年的日期已过，且不是昨天或今天
-                        thisYearDate.isBefore(today) &&
-                            java.time.temporal.ChronoUnit.DAYS.between(thisYearDate, today) > 1
+                        // 今年的日期已过（包括昨天和今天之前）
+                        thisYearDate.isBefore(today)
                     } else false
                 }
                 // 标准格式 yyyy-MM-dd：检查今年的这个日期是否已过
@@ -618,9 +709,8 @@ fun HomeScreen(
                         val month = parts[1].toInt()
                         val day = parts[2].toInt()
                         val thisYearDate = java.time.LocalDate.of(today.year, month, day)
-                        // 今年的日期已过，且不是昨天或今天
-                        thisYearDate.isBefore(today) &&
-                            java.time.temporal.ChronoUnit.DAYS.between(thisYearDate, today) > 1
+                        // 今年的日期已过（包括昨天和今天之前）
+                        thisYearDate.isBefore(today)
                     } else false
                 }
                 else -> false
@@ -645,6 +735,37 @@ fun HomeScreen(
         }
     }
 
+    // 提取排序逻辑为独立函数，确保在所有地方都应用相同的排序规则
+    fun applySortLogic(eventsList: List<Event>): List<Event> {
+        return if (dataManager.isAutoSortExpiredEventsEnabled()) {
+            // 开启了自动排序：未过期事件在前，已过期事件在后（仅在内存中，不改数据库）
+            val (expiredEvents, upcomingEvents) = eventsList.partition { event ->
+                // 使用缓存的天数判断是否过期（负数表示已过期）
+                val days = event.cachedDays ?: 0L
+                days < 0
+            }
+
+            // 未过期事件：按剩余天数升序排序（天数越少越靠前），天数相同时按sortOrder降序
+            val sortedUpcoming = upcomingEvents.sortedWith(
+                compareBy<Event> { it.cachedDays ?: 0L }  // 使用缓存的天数，不重新计算！
+                    .thenByDescending { it.sortOrder }
+            )
+
+            // 过期事件：按sortOrder降序排序，保持用户手动排序
+            val sortedExpired = expiredEvents.sortedByDescending { it.sortOrder }
+
+            val sorted = sortedUpcoming + sortedExpired
+
+            Log.d("HomeScreen", "Applied auto-sort: ${eventsList.size} total (upcoming: ${upcomingEvents.size}, expired: ${expiredEvents.size})")
+            sorted
+        } else {
+            // 关闭了自动排序：完全按照 sortOrder 降序排列，不区分是否过期
+            val sorted = eventsList.sortedByDescending { it.sortOrder }
+            Log.d("HomeScreen", "Applied normal sort: ${eventsList.size} events")
+            sorted
+        }
+    }
+
     // 过滤搜索结果
     val filteredEvents = remember(events, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -656,54 +777,21 @@ fun HomeScreen(
         }
     }
 
-    // 数据加载 - 智能排序：将过期事件移到末尾（仅显示层面，不修改数据库）
+    // 数据加载 - 智能排序：根据设置决定是否将过期事件移到末尾（仅在内存中排序，不修改数据库）
     LaunchedEffect(loginState, dataManager, refreshKey) {
         scope.launch {
             isLoading = true
             try {
                 val newEvents = dataManager.getEvents()
-
-                // 只在日期变化时执行自动排序，避免覆盖用户手动排序
-                if (dataManager.shouldAutoSort()) {
-                    val today = java.time.LocalDate.now()
-                    val (passedEvents, upcomingEvents) = newEvents.partition { event ->
-                        isEventPassedThisYear(event.eventDate, today)
+                // 先计算并缓存每个事件的天数
+                val eventsWithCachedDays = newEvents.map { event ->
+                    event.apply {
+                        cachedDays = com.example.xiaomaotai.ui.components.calculateDaysAfter(eventDate).second
+                        android.util.Log.d("HomeScreen", "缓存天数: $eventName ($eventDate) = $cachedDays 天")
                     }
-
-                    // 如果有已过期事件，重新排序并保存
-                    if (passedEvents.isNotEmpty()) {
-                        // 未过期的保持原顺序，已过期的按剩余天数正序排列后放到末尾
-                        val sortedPassedEvents = passedEvents.sortedBy { event ->
-                            calculateDaysAfter(event.eventDate).second
-                        }
-
-                        val reorderedEvents = upcomingEvents + sortedPassedEvents
-
-                        // 重新分配sortOrder并保存到数据库
-                        val baseSortOrder = 1000
-                        val updatedEvents = reorderedEvents.mapIndexed { index, event ->
-                            event.copy(sortOrder = baseSortOrder - index)
-                        }
-
-                        // 保存新的排序到数据库
-                        dataManager.updateEventOrder(updatedEvents)
-                        events = updatedEvents
-
-                        // 保存今天的日期，避免重复排序
-                        dataManager.saveLastAutoSortDate(today.toString())
-
-                        Log.d("HomeScreen", "Events auto-sorted: ${newEvents.size} (upcoming: ${upcomingEvents.size}, passed: ${passedEvents.size})")
-                    } else {
-                        // 没有已过期事件，直接使用原顺序，但仍然记录日期
-                        events = newEvents
-                        dataManager.saveLastAutoSortDate(today.toString())
-                        Log.d("HomeScreen", "Events loaded: ${newEvents.size}, no expired events")
-                    }
-                } else {
-                    // 今天已经自动排序过，直接使用数据库中的顺序（保留用户手动排序）
-                    events = newEvents
-                    Log.d("HomeScreen", "Events loaded: ${newEvents.size}, using saved order")
                 }
+                // 使用统一的排序逻辑
+                events = applySortLogic(eventsWithCachedDays)
             } catch (e: Exception) {
                 Log.e("HomeScreen", "Failed to load events", e)
             } finally {
@@ -747,7 +835,14 @@ fun HomeScreen(
                     if (events.isNotEmpty()) {
                         IconButton(
                             onClick = {
-                                onNavigateToSort(events) // 传递当前事件列表
+                                // 在传递前，先计算并缓存每个事件的天数
+                                val eventsWithDays = events.map { event ->
+                                    event.apply {
+                                        cachedDays = com.example.xiaomaotai.ui.components.calculateDaysAfter(eventDate).second
+                                        android.util.Log.d("MainActivity", "计算天数: $eventName = $cachedDays 天")
+                                    }
+                                }
+                                onNavigateToSort(eventsWithDays) // 传递带天数的事件列表
                             },
                             modifier = Modifier.size(40.dp)
                         ) {
@@ -1005,9 +1100,9 @@ fun HomeScreen(
                                             // 调用 DataManager 的批量更新方法
                                             dataManager.updateEventOrder(updatedEvents)
 
-                                            // 保存本地排序状态
+                                            // 保存本地排序状态，并应用排序逻辑
                                             sortOrder = updatedEvents.map { it.id }
-                                            events = updatedEvents
+                                            events = applySortLogic(updatedEvents)
                                             isDragSortMode = false
 
                                             Log.d("HomeScreen", "排序保存成功")
@@ -1099,9 +1194,10 @@ fun HomeScreen(
                                             isLoading = true
                                             try {
                                                 dataManager.deleteEvent(event.id)
-                                                
-                                                // 只从当前列表中移除删除的卡片，不重新排序
-                                                events = events.filter { it.id != event.id }
+
+                                                // 从当前列表中移除删除的卡片，并重新应用排序逻辑
+                                                val updatedEvents = events.filter { it.id != event.id }
+                                                events = applySortLogic(updatedEvents)
                                             } catch (e: Exception) {
                                                 Log.e("HomeScreen", "Failed to delete event", e)
                                             } finally {
@@ -1159,9 +1255,9 @@ fun HomeScreen(
                                     dataManager.addEvent(eventToSave)
                                 }
 
-                                // 获取最新数据并更新
+                                // 获取最新数据并应用排序逻辑
                                 val newEvents = dataManager.getEvents()
-                                events = newEvents
+                                events = applySortLogic(newEvents)
                             } catch (e: Exception) {
                                 Log.e("HomeScreen", "Failed to save event", e)
                             } finally {

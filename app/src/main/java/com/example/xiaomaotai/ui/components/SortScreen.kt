@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -53,22 +54,41 @@ fun SortScreen(
     var events by remember { mutableStateOf(initialEvents) } // 直接使用传入的初始事件
     var homePageEvents by remember { mutableStateOf(initialEvents) } // 保存首页传过来的顺序
     var isSaving by remember { mutableStateOf(false) }
-    
+
     // 排序状态：0=默认，1=正序，2=倒序
     var currentSortType by remember { mutableStateOf(0) }
-    
+
+    // 缓存每个事件的天数（进入页面时计算一次，排序时直接使用）
+    val eventDaysCache = remember { mutableMapOf<String, Long>() }
+
     // 最简化的拖拽状态
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
     var draggedTargetIndex by remember { mutableStateOf<Int?>(null) }
-    
+
     // 添加列表状态管理，确保排序后显示顶部
     val listState = rememberLazyListState()
+
+    // 检测是否开启了自动排序过期事件
+    var isAutoSortEnabled by remember { mutableStateOf(dataManager.isAutoSortExpiredEventsEnabled()) }
 
     // 每次进入都重置为默认状态，显示首页传过来的顺序
     LaunchedEffect(initialEvents) {
         events = initialEvents
         homePageEvents = initialEvents // 保存首页传过来的顺序
         currentSortType = 0 // 每次进入都重置为默认状态
+
+        // 使用传入时已经计算好的天数，如果没有则现场计算（兼容旧数据）
+        eventDaysCache.clear()
+        initialEvents.forEach { event ->
+            val days = event.cachedDays ?: run {
+                // 如果没有缓存天数（旧数据），现场计算一次
+                val calculated = calculateDaysAfter(event.eventDate).second
+                android.util.Log.w("SortScreen", "旧数据没有cachedDays，现场计算: ${event.eventName} = $calculated 天")
+                calculated
+            }
+            eventDaysCache[event.id] = days
+            android.util.Log.d("SortScreen", "使用天数: ${event.eventName} (${event.eventDate}) = $days 天")
+        }
     }
 
     // 保存函数 - 使用批量更新优化性能
@@ -115,12 +135,26 @@ fun SortScreen(
     fun sortAscending() {
         val currentFirstVisibleIndex = listState.firstVisibleItemIndex
         val currentScrollOffset = listState.firstVisibleItemScrollOffset
-        
-        // 按剩余天数正序排序（最近的事件在前）
-        val sortedEvents = events.sortedBy { event ->
-            calculateDaysAfter(event.eventDate).second
+
+        // 使用缓存的天数进行排序，不重新计算
+        val eventsWithDays = events.map { event ->
+            val days = eventDaysCache[event.id] ?: 0L
+            android.util.Log.d("SortScreen", "正序排序: ${event.eventName} = $days 天")
+            event to days
         }
-        
+
+        // 按剩余天数正序排序（最近的事件在前），天数相同时按sortOrder降序保持稳定性
+        val sortedEvents = eventsWithDays.sortedWith(
+            compareBy<Pair<Event, Long>> { it.second }  // 按天数排序
+                .thenByDescending { it.first.sortOrder }  // 天数相同时按sortOrder排序
+        ).map { it.first }
+
+        // 打印排序结果
+        sortedEvents.forEachIndexed { index, event ->
+            val days = eventDaysCache[event.id] ?: 0L
+            android.util.Log.d("SortScreen", "排序结果[$index]: ${event.eventName} = $days 天")
+        }
+
         // 重新分配sortOrder但不立即保存到数据库
         val baseSortOrder = 1000
         val updatedEvents = sortedEvents.mapIndexed { index, event ->
@@ -128,7 +162,7 @@ fun SortScreen(
         }
         events = updatedEvents
         currentSortType = 1
-        
+
         // 只保持视图位置，不保存到数据库
         scope.launch {
             listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
@@ -138,12 +172,19 @@ fun SortScreen(
     fun sortDescending() {
         val currentFirstVisibleIndex = listState.firstVisibleItemIndex
         val currentScrollOffset = listState.firstVisibleItemScrollOffset
-        
-        // 按剩余天数倒序排序（最远的事件在前）
-        val sortedEvents = events.sortedByDescending { event ->
-            calculateDaysAfter(event.eventDate).second
+
+        // 使用缓存的天数进行排序，不重新计算
+        val eventsWithDays = events.map { event ->
+            val days = eventDaysCache[event.id] ?: 0L
+            event to days
         }
-        
+
+        // 按剩余天数倒序排序（最远的事件在前），天数相同时按sortOrder降序保持稳定性
+        val sortedEvents = eventsWithDays.sortedWith(
+            compareByDescending<Pair<Event, Long>> { it.second }  // 按天数倒序排序
+                .thenByDescending { it.first.sortOrder }  // 天数相同时按sortOrder排序
+        ).map { it.first }
+
         // 重新分配sortOrder但不立即保存到数据库
         val baseSortOrder = 1000
         val updatedEvents = sortedEvents.mapIndexed { index, event ->
@@ -151,7 +192,7 @@ fun SortScreen(
         }
         events = updatedEvents
         currentSortType = 2
-        
+
         // 只保持视图位置，不保存到数据库
         scope.launch {
             listState.scrollToItem(currentFirstVisibleIndex, currentScrollOffset)
@@ -257,7 +298,69 @@ fun SortScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
-            
+
+            // 自动排序过期事件提示条
+            if (isAutoSortEnabled) {
+                Spacer(Modifier.height(12.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "已开启自动排序，保存后过期事件将移到末尾",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text(
+                                    text = "点击右侧 × 可快捷关闭此功能",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+
+                        // 关闭按钮
+                        IconButton(
+                            onClick = {
+                                isAutoSortEnabled = false
+                                dataManager.setAutoSortExpiredEvents(false)
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "关闭自动排序",
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
             
             // 简洁的排序按钮 - 等比展示

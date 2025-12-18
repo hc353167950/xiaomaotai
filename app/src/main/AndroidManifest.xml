@@ -27,7 +27,8 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.XiaoMaoTai">
+            android:theme="@style/Theme.XiaoMaoTai"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -46,8 +47,15 @@
         </receiver>
         
         <!-- 前台服务：用于在Android 15等高版本上保证APP被杀死后仍能发送提醒 -->
-        <service 
+        <service
             android:name=".ReminderForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 常驻通知服务：用于在通知栏显示常驻通知 -->
+        <service
+            android:name=".PersistentNotificationService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
