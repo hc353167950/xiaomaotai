@@ -70,7 +70,8 @@ data class Event(
     val sortOrder: Int = 0,
     val status: EventStatus = EventStatus.NORMAL,
     val eventType: EventType = EventType.SOLAR, // 新增：事件类型字段
-    val backgroundId: Int = 0 // 新增：背景ID字段，用于存储背景样式
+    val backgroundId: Int = 0, // 新增：背景ID字段，用于存储背景样式
+    @kotlinx.serialization.Transient var cachedDays: Long? = null // 缓存的天数（不持久化到数据库）
 ) {
     // 便捷方法：根据eventDate自动推断eventType
     fun withAutoDetectedType(): Event {

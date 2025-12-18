@@ -96,17 +96,20 @@ class ReminderManager(private val context: Context) {
      */
     fun scheduleReminder(event: Event) {
         try {
-            // 检查权限
-            if (!canScheduleAlarms()) {
-                Log.w("ReminderManager", "没有精确闹钟权限，无法设置提醒: ${event.eventName}")
+            // 检查权限，如果没有精确闹钟权限则使用降级策略
+            val hasExactAlarmPermission = canScheduleAlarms()
+            if (!hasExactAlarmPermission) {
+                Log.w("ReminderManager", "没有精确闹钟权限，使用降级策略: ${event.eventName}")
                 // 对于vivo设备，提供更详细的错误信息
-                if (Build.MANUFACTURER.lowercase().contains("vivo") || 
+                if (Build.MANUFACTURER.lowercase().contains("vivo") ||
                     Build.MANUFACTURER.lowercase().contains("iqoo")) {
                     Log.w("ReminderManager", "vivo设备权限提示：请前往 设置 → 应用与权限 → 权限管理 → 闹钟 中添加小茅台")
                 }
+                // 使用降级策略：非精确闹钟
+                scheduleReminderWithFallback(event)
                 return
             }
-            
+
             // 确保通知渠道存在
             createNotificationChannel()
             
@@ -119,124 +122,139 @@ class ReminderManager(private val context: Context) {
             
             val eventCalendar = Calendar.getInstance()
             eventCalendar.time = nextReminderDate
-            eventCalendar.set(Calendar.HOUR_OF_DAY, 9)
-            eventCalendar.set(Calendar.MINUTE, 0)
-            eventCalendar.set(Calendar.SECOND, 0)
-            eventCalendar.set(Calendar.MILLISECOND, 0)
-            
+
             val now = Calendar.getInstance()
-            
+
             // 设置多个提醒：7天前、1天前、当天
             val reminderDays = listOf(7, 1, 0) // 提前天数
             val reminderLabels = listOf("还有7天", "明天就是", "就是今天")
-            
-            reminderDays.forEachIndexed { index, daysBefore ->
-                val reminderCalendar = eventCalendar.clone() as Calendar
-                reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
-                
-                // 检查今天是否已经发送过这个提醒（防止所有类型的重复提醒）
-                if (hasReminderSentToday(event.id, daysBefore)) {
-                    Log.d("ReminderManager", "${reminderLabels[index]}提醒已发送过，跳过: ${event.eventName}")
-                    return@forEachIndexed
-                }
-                
-                // 精确的立即提醒逻辑：只对特定情况下的提醒进行立即处理
-                val isReminderTimePassed = reminderCalendar.timeInMillis <= now.timeInMillis
-                
-                // 修复天数计算精度问题：使用日期比较而不是时间比较
-                val eventDateOnly = Calendar.getInstance().apply {
-                    time = eventCalendar.time
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                val nowDateOnly = Calendar.getInstance().apply {
-                    time = now.time
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                val daysBetweenEventAndNow = ((eventDateOnly.timeInMillis - nowDateOnly.timeInMillis) / (24 * 60 * 60 * 1000)).toInt()
-                
-                // 调试日志：检查天数计算
-                Log.d("ReminderManager", "🔍 天数计算调试: ${event.eventName}, eventCalendar: ${eventCalendar.time} (${eventCalendar.timeInMillis}), now: ${now.time} (${now.timeInMillis}), daysBetweenEventAndNow: $daysBetweenEventAndNow, daysBefore: $daysBefore")
-                Log.d("ReminderManager", "🔍 日期比较: 事件日期: ${eventDateOnly.time}, 今天日期: ${nowDateOnly.time}")
-                
-                // 只对符合条件的情况进行立即提醒：
-                // 1. 当天事件（daysBefore=0 && daysBetweenEventAndNow=0）
-                // 2. 明天事件今天创建（daysBefore=1 && daysBetweenEventAndNow=1）
-                // 3. 7天后事件今天创建（daysBefore=7 && daysBetweenEventAndNow=7）
-                val shouldImmediateRemind = isReminderTimePassed && 
-                    ((daysBefore == 0 && daysBetweenEventAndNow == 0) ||  // 当天事件
-                     (daysBefore == 1 && daysBetweenEventAndNow == 1) ||  // 明天事件
-                     (daysBefore == 7 && daysBetweenEventAndNow == 7))    // 7天后事件
-                
-                Log.d("ReminderManager", "检查提醒时间: ${event.eventName}, 提醒类型: ${reminderLabels[index]} (daysBefore=$daysBefore), 提醒时间: ${reminderCalendar.time}, 当前时间: ${now.time}, 时间已过: $isReminderTimePassed, 事件距离天数: $daysBetweenEventAndNow, 需要立即提醒: $shouldImmediateRemind")
-                
-                if (shouldImmediateRemind) {
-                    // 符合条件的提醒时间已过，设置30秒后立即提醒
-                    reminderCalendar.timeInMillis = now.timeInMillis + 30 * 1000
-                    Log.d("ReminderManager", "⚙️ 精确立即提醒: ${event.eventName} (${reminderLabels[index]}), 符合条件且原时间已过，设置30秒后提醒，新提醒时间: ${reminderCalendar.time}")
-                }
-                
-                // 设置未来的提醒或当天的立即提醒
-                Log.d("ReminderManager", "检查是否需要设置提醒: ${event.eventName}, 提醒时间: ${reminderCalendar.time} (${reminderCalendar.timeInMillis}), 当前时间: ${now.time} (${now.timeInMillis}), 时间差: ${(reminderCalendar.timeInMillis - now.timeInMillis) / 1000}秒")
-                
-                if (reminderCalendar.timeInMillis > now.timeInMillis) {
-                    val intent = Intent(context, ReminderReceiver::class.java).apply {
-                        action = "com.example.xiaomaotai.REMINDER"
-                        putExtra("event_id", event.id)
-                        putExtra("event_name", event.eventName)
-                        putExtra("event_date", event.eventDate)
-                        putExtra("days_remaining", daysBefore)
-                        putExtra("reminder_label", reminderLabels[index])
+
+            // 7天前和1天前只在早上8点提醒，当天有3个提醒时间
+            val reminderHoursMap = mapOf(
+                7 to listOf(8),        // 7天前：只在早上8点
+                1 to listOf(8),        // 1天前：只在早上8点
+                0 to listOf(0, 8, 12)  // 当天：凌晨00:00、上午08:00、中午12:00
+            )
+
+            reminderDays.forEachIndexed { dayIndex, daysBefore ->
+                // 根据天数获取对应的提醒时间列表
+                val reminderHours = reminderHoursMap[daysBefore] ?: listOf(8)
+
+                // 为每个天数设置对应的提醒时间
+                reminderHours.forEachIndexed { hourIndex, hour ->
+                    val reminderCalendar = eventCalendar.clone() as Calendar
+                    reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
+                    reminderCalendar.set(Calendar.HOUR_OF_DAY, hour)
+                    reminderCalendar.set(Calendar.MINUTE, 0)
+                    reminderCalendar.set(Calendar.SECOND, 0)
+                    reminderCalendar.set(Calendar.MILLISECOND, 0)
+
+                    // 检查今天是否已经发送过这个提醒（防止所有类型的重复提醒）
+                    if (hasReminderSentToday(event.id, daysBefore, hour)) {
+                        Log.d("ReminderManager", "${reminderLabels[dayIndex]}提醒(${hour}:00)已发送过，跳过: ${event.eventName}")
+                        return@forEachIndexed
                     }
-                    
-                    val pendingIntent = PendingIntent.getBroadcast(
-                        context,
-                        "${event.id}_$daysBefore".hashCode(), // 每个提醒使用不同的ID
-                        intent,
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                        } else {
-                            PendingIntent.FLAG_UPDATE_CURRENT
+
+                    // 精确的立即提醒逻辑：只对特定情况下的提醒进行立即处理
+                    val isReminderTimePassed = reminderCalendar.timeInMillis <= now.timeInMillis
+
+                    // 修复天数计算精度问题：使用日期比较而不是时间比较
+                    val eventDateOnly = Calendar.getInstance().apply {
+                        time = eventCalendar.time
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val nowDateOnly = Calendar.getInstance().apply {
+                        time = now.time
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val daysBetweenEventAndNow = ((eventDateOnly.timeInMillis - nowDateOnly.timeInMillis) / (24 * 60 * 60 * 1000)).toInt()
+
+                    // 调试日志：检查天数计算
+                    Log.d("ReminderManager", "🔍 天数计算调试: ${event.eventName}, eventCalendar: ${eventCalendar.time} (${eventCalendar.timeInMillis}), now: ${now.time} (${now.timeInMillis}), daysBetweenEventAndNow: $daysBetweenEventAndNow, daysBefore: $daysBefore")
+                    Log.d("ReminderManager", "🔍 日期比较: 事件日期: ${eventDateOnly.time}, 今天日期: ${nowDateOnly.time}")
+
+                    // 只对符合条件的情况进行立即提醒：
+                    // 1. 当天事件（daysBefore=0 && daysBetweenEventAndNow=0）
+                    // 2. 明天事件今天创建（daysBefore=1 && daysBetweenEventAndNow=1）
+                    // 3. 7天后事件今天创建（daysBefore=7 && daysBetweenEventAndNow=7）
+                    val shouldImmediateRemind = isReminderTimePassed &&
+                        ((daysBefore == 0 && daysBetweenEventAndNow == 0) ||  // 当天事件
+                         (daysBefore == 1 && daysBetweenEventAndNow == 1) ||  // 明天事件
+                         (daysBefore == 7 && daysBetweenEventAndNow == 7))    // 7天后事件
+
+                    Log.d("ReminderManager", "检查提醒时间: ${event.eventName}, 提醒类型: ${reminderLabels[dayIndex]} (daysBefore=$daysBefore, hour=$hour), 提醒时间: ${reminderCalendar.time}, 当前时间: ${now.time}, 时间已过: $isReminderTimePassed, 事件距离天数: $daysBetweenEventAndNow, 需要立即提醒: $shouldImmediateRemind")
+
+                    if (shouldImmediateRemind) {
+                        // 符合条件的提醒时间已过，设置30秒后立即提醒
+                        reminderCalendar.timeInMillis = now.timeInMillis + (30 + hourIndex * 10) * 1000  // 错开时间避免冲突
+                        Log.d("ReminderManager", "⚙️ 精确立即提醒: ${event.eventName} (${reminderLabels[dayIndex]}, ${hour}:00), 符合条件且原时间已过，设置${30 + hourIndex * 10}秒后提醒，新提醒时间: ${reminderCalendar.time}")
+                    }
+
+                    // 设置未来的提醒或当天的立即提醒
+                    Log.d("ReminderManager", "检查是否需要设置提醒: ${event.eventName}, 提醒时间: ${reminderCalendar.time} (${reminderCalendar.timeInMillis}), 当前时间: ${now.time} (${now.timeInMillis}), 时间差: ${(reminderCalendar.timeInMillis - now.timeInMillis) / 1000}秒")
+
+                    if (reminderCalendar.timeInMillis > now.timeInMillis) {
+                        val intent = Intent(context, ReminderReceiver::class.java).apply {
+                            action = "com.example.xiaomaotai.REMINDER"
+                            putExtra("event_id", event.id)
+                            putExtra("event_name", event.eventName)
+                            putExtra("event_date", event.eventDate)
+                            putExtra("days_remaining", daysBefore)
+                            putExtra("reminder_hour", hour)
+                            putExtra("reminder_label", reminderLabels[dayIndex])
                         }
-                    )
-                    
-                    // 设置精确闹钟 - 确保APP被杀死后也能提醒
-                    try {
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                            // Android 6.0+ 使用setExactAndAllowWhileIdle确保在Doze模式下也能触发
-                            alarmManager.setExactAndAllowWhileIdle(
-                                AlarmManager.RTC_WAKEUP,
-                                reminderCalendar.timeInMillis,
-                                pendingIntent
-                            )
-                        } else {
-                            // Android 6.0以下使用setExact
-                            alarmManager.setExact(
-                                AlarmManager.RTC_WAKEUP,
-                                reminderCalendar.timeInMillis,
-                                pendingIntent
-                            )
+
+                        val pendingIntent = PendingIntent.getBroadcast(
+                            context,
+                            "${event.id}_${daysBefore}_${hour}".hashCode(), // 每个提醒使用不同的ID（包含时间）
+                            intent,
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            } else {
+                                PendingIntent.FLAG_UPDATE_CURRENT
+                            }
+                        )
+
+                        // 设置精确闹钟 - 确保APP被杀死后也能提醒
+                        try {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                // Android 6.0+ 使用setExactAndAllowWhileIdle确保在Doze模式下也能触发
+                                alarmManager.setExactAndAllowWhileIdle(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderCalendar.timeInMillis,
+                                    pendingIntent
+                                )
+                            } else {
+                                // Android 6.0以下使用setExact
+                                alarmManager.setExact(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderCalendar.timeInMillis,
+                                    pendingIntent
+                                )
+                            }
+                            Log.d("ReminderManager", "✅ 已成功设置${reminderLabels[dayIndex]}提醒(${hour}:00): ${event.eventName} at ${reminderCalendar.time}, PendingIntent ID: ${"${event.id}_${daysBefore}_${hour}".hashCode()}")
+
+                            // 优化1：增加多重备份AlarmManager（1-3分钟后的备份提醒）
+                            setupBackupAlarms(event, reminderCalendar, daysBefore, reminderLabels[dayIndex], hour)
+
+                        } catch (e: SecurityException) {
+                            Log.e("ReminderManager", "❌ 设置精确闹钟权限被拒绝: ${e.message}")
+                        } catch (e: Exception) {
+                            Log.e("ReminderManager", "❌ 设置闹钟失败: ${e.message}", e)
                         }
-                        Log.d("ReminderManager", "✅ 已成功设置${reminderLabels[index]}提醒: ${event.eventName} at ${reminderCalendar.time}, PendingIntent ID: ${"${event.id}_$daysBefore".hashCode()}")
-                        
-                        // 优化1：增加多重备份AlarmManager（1-3分钟后的备份提醒）
-                        setupBackupAlarms(event, reminderCalendar, daysBefore, reminderLabels[index])
-                        
-                    } catch (e: SecurityException) {
-                        Log.e("ReminderManager", "❌ 设置精确闹钟权限被拒绝: ${e.message}")
-                    } catch (e: Exception) {
-                        Log.e("ReminderManager", "❌ 设置闹钟失败: ${e.message}", e)
                     }
                 }
             }
-            
+
             // 增强功能：检查是否需要启动前台服务（24小时内的提醒）
-            checkAndStartForegroundService(event, eventCalendar)
+            // 方案B：已合并到PersistentNotificationService，此处不再需要
+            // checkAndStartForegroundService(event, eventCalendar)
             
         } catch (e: Exception) {
             Log.e("ReminderManager", "设置提醒失败: ${e.message}")
@@ -244,25 +262,75 @@ class ReminderManager(private val context: Context) {
     }
     
     /**
-     * 取消事件提醒 - 取消所有相关的多重提醒（7天前、1天前、当天）
+     * 取消事件提醒 - 取消所有相关的多重提醒
+     * 7天前和1天前只有8点的提醒，当天有3个时间段的提醒
+     * 同时兼容旧版本格式的提醒（向后兼容）
      */
     fun cancelReminder(eventId: String) {
         try {
             val reminderDays = listOf(7, 1, 0)
+
+            // 7天前和1天前只在早上8点提醒，当天有3个提醒时间
+            val reminderHoursMap = mapOf(
+                7 to listOf(8),        // 7天前：只在早上8点
+                1 to listOf(8),        // 1天前：只在早上8点
+                0 to listOf(0, 8, 12)  // 当天：凌晨00:00、上午08:00、中午12:00
+            )
+
+            // 取消新格式的提醒（带hour参数）
+            reminderDays.forEach { daysBefore ->
+                val reminderHours = reminderHoursMap[daysBefore] ?: listOf(8)
+                reminderHours.forEach { hour ->
+                    val intent = Intent(context, ReminderReceiver::class.java).apply {
+                        action = "com.example.xiaomaotai.REMINDER"
+                    }
+
+                    val pendingIntent = PendingIntent.getBroadcast(
+                        context,
+                        "${eventId}_${daysBefore}_${hour}".hashCode(),
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    alarmManager.cancel(pendingIntent)
+                    Log.d("ReminderManager", "已取消事件提醒: $eventId (提前${daysBefore}天, ${hour}:00)")
+                }
+            }
+
+            // 兼容性：取消旧版本所有可能的时间组合（用于清理升级前的提醒）
+            val allPossibleHours = listOf(0, 8, 12)
+            reminderDays.forEach { daysBefore ->
+                allPossibleHours.forEach { hour ->
+                    val intent = Intent(context, ReminderReceiver::class.java).apply {
+                        action = "com.example.xiaomaotai.REMINDER"
+                    }
+
+                    val pendingIntent = PendingIntent.getBroadcast(
+                        context,
+                        "${eventId}_${daysBefore}_${hour}".hashCode(),
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+
+                    alarmManager.cancel(pendingIntent)
+                }
+            }
+
+            // 兼容性：取消旧格式的提醒（不带hour参数，用于清理升级前的提醒）
             reminderDays.forEach { daysBefore ->
                 val intent = Intent(context, ReminderReceiver::class.java).apply {
                     action = "com.example.xiaomaotai.REMINDER"
                 }
-                
+
                 val pendingIntent = PendingIntent.getBroadcast(
                     context,
-                    "${eventId}_$daysBefore".hashCode(),
+                    "${eventId}_${daysBefore}".hashCode(),
                     intent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
-                
+
                 alarmManager.cancel(pendingIntent)
-                Log.d("ReminderManager", "已取消事件提醒: $eventId (提前${daysBefore}天)")
+                Log.d("ReminderManager", "已取消旧格式提醒: $eventId (提前${daysBefore}天)")
             }
         } catch (e: Exception) {
             Log.e("ReminderManager", "取消提醒失败: $eventId, ${e.message}")
@@ -384,7 +452,36 @@ class ReminderManager(private val context: Context) {
                 // 公历格式 (yyyy-MM-dd)
                 eventDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> {
                     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                    sdf.parse(eventDate)
+                    val parsedDate = sdf.parse(eventDate)
+                    parsedDate?.let {
+                        val eventCal = Calendar.getInstance()
+                        eventCal.time = it
+
+                        val today = Calendar.getInstance()
+
+                        // 比较日期而不是具体时间，避免当天事件被错误判断
+                        val eventDayOfYear = eventCal.get(Calendar.DAY_OF_YEAR)
+                        val todayDayOfYear = today.get(Calendar.DAY_OF_YEAR)
+                        val eventYear = eventCal.get(Calendar.YEAR)
+                        val todayYear = today.get(Calendar.YEAR)
+
+                        val isEventDatePassed = (eventYear < todayYear) ||
+                                               (eventYear == todayYear && eventDayOfYear < todayDayOfYear)
+
+                        Log.d("ReminderManager", "📅 公历格式解析 - 原始日期: ${eventCal.time}, 今天: ${today.time}")
+                        Log.d("ReminderManager", "📅 日期比较 - 事件天数: $eventDayOfYear, 今天天数: $todayDayOfYear, 事件年: $eventYear, 今年: $todayYear, 日期已过: $isEventDatePassed")
+
+                        // 如果日期已过，循环到明年的相同日期
+                        if (isEventDatePassed) {
+                            // 计算需要增加几年才能到下一次纪念日
+                            val yearDiff = todayYear - eventYear
+                            eventCal.add(Calendar.YEAR, yearDiff + 1)
+                            Log.d("ReminderManager", "📅 日期已过${yearDiff}年，设置为明年同日: ${eventCal.time}")
+                        }
+
+                        Log.d("ReminderManager", "📅 公历格式最终结果: ${eventCal.time}")
+                        eventCal.time
+                    }
                 }
                 
                 else -> {
@@ -511,19 +608,19 @@ class ReminderManager(private val context: Context) {
     /**
      * 检查今天是否已经为某个事件的特定提醒类型发送过通知
      */
-    fun hasReminderSentToday(eventId: String, daysRemaining: Int): Boolean {
+    fun hasReminderSentToday(eventId: String, daysRemaining: Int, hour: Int): Boolean {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val reminderKey = "${eventId}_${daysRemaining}_$today"
+        val reminderKey = "${eventId}_${daysRemaining}_${hour}_$today"
         return sharedPreferences.getBoolean(reminderKey, false)
     }
-    
+
     /**
      * 记录今天已经为某个事件的特定提醒类型发送过通知
      */
-    fun markReminderSentToday(eventId: String, daysRemaining: Int) {
+    fun markReminderSentToday(eventId: String, daysRemaining: Int, hour: Int) {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val reminderKey = "${eventId}_${daysRemaining}_$today"
-        sharedPreferences.edit().putBoolean(reminderKey, true).apply()
+        val reminderKey = "${eventId}_${daysRemaining}_${hour}_$today"
+        sharedPreferences.edit().putBoolean(reminderKey, true).commit()
         Log.d("ReminderManager", "标记提醒已发送: $reminderKey")
     }
     
@@ -536,11 +633,11 @@ class ReminderManager(private val context: Context) {
                 add(Calendar.DAY_OF_YEAR, -7)
             }
             val cutoffDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(sevenDaysAgo.time)
-            
+
             val editor = sharedPreferences.edit()
             val allKeys = sharedPreferences.all.keys
             var removedCount = 0
-            
+
             allKeys.forEach { key ->
                 if (key.contains("_") && key.split("_").size >= 3) {
                     val datePart = key.split("_").last()
@@ -550,9 +647,9 @@ class ReminderManager(private val context: Context) {
                     }
                 }
             }
-            
+
             if (removedCount > 0) {
-                editor.apply()
+                editor.commit()
                 Log.d("ReminderManager", "清理了${removedCount}条过期提醒历史记录")
             }
         } catch (e: Exception) {
@@ -567,26 +664,47 @@ class ReminderManager(private val context: Context) {
         try {
             // 确保通知渠道存在
             createNotificationChannel()
-            
+
             // 直接发送通知，不通过AlarmManager
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            
+
+            // 创建点击通知后打开APP的Intent
+            val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("from_notification", true)
+                putExtra("event_id", "test_notification")
+                putExtra("event_name", "测试通知")
+            }
+
+            val pendingIntent = android.app.PendingIntent.getActivity(
+                context,
+                "test_notification".hashCode(),
+                openAppIntent,
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                }
+            )
+
             val notification = androidx.core.app.NotificationCompat.Builder(context, CHANNEL_ID)
                 .setContentTitle("测试通知")
-                .setContentText("如果你看到这条通知，说明通知系统工作正常")
+                .setContentText("如果你看到这条通知，说明通知系统工作正常。点击可打开APP")
+                .setSubText(TimeFormatUtils.getCurrentRelativeTimeText()) // 使用subText显示相对时间
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
-                .setWhen(System.currentTimeMillis())
-                .setShowWhen(true)
+                .setWhen(System.currentTimeMillis()) // 保留时间戳用于排序
+                .setShowWhen(false) // 隐藏默认时间显示，使用自定义格式
+                .setContentIntent(pendingIntent) // 添加点击打开APP的Intent
                 .build()
-            
+
             val notificationId = "immediate_test".hashCode()
             notificationManager.notify(notificationId, notification)
-            
+
             Log.d("ReminderManager", "立即测试通知已发送，ID: $notificationId")
-            
+
         } catch (e: Exception) {
             Log.e("ReminderManager", "发送立即测试通知失败: ${e.message}")
             e.printStackTrace()
@@ -651,7 +769,7 @@ class ReminderManager(private val context: Context) {
      * 优化1：设置多重备份AlarmManager（1-3分钟后的备份提醒）
      * 在原有功能基础上增加备份机制，确保提醒可靠性
      */
-    private fun setupBackupAlarms(event: Event, originalReminderTime: Calendar, daysBefore: Int, reminderLabel: String) {
+    private fun setupBackupAlarms(event: Event, originalReminderTime: Calendar, daysBefore: Int, reminderLabel: String, hour: Int) {
         try {
             // 设置1分钟、2分钟、3分钟后的备份提醒
             val backupDelays = listOf(1, 2, 3) // 分钟
@@ -666,14 +784,15 @@ class ReminderManager(private val context: Context) {
                     putExtra("event_name", event.eventName)
                     putExtra("event_date", event.eventDate)
                     putExtra("days_remaining", daysBefore)
+                    putExtra("reminder_hour", hour)
                     putExtra("reminder_label", reminderLabel)
                     putExtra("backup_delay", delayMinutes)
                     putExtra("original_time", originalReminderTime.timeInMillis)
                 }
-                
+
                 val backupPendingIntent = PendingIntent.getBroadcast(
                     context,
-                    "${event.id}_${daysBefore}_backup_${delayMinutes}".hashCode(),
+                    "${event.id}_${daysBefore}_${hour}_backup_${delayMinutes}".hashCode(),
                     backupIntent,
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -706,59 +825,36 @@ class ReminderManager(private val context: Context) {
         }
     }
 
-    
+
     /**
      * 优化3：检查并启动前台服务（24小时内提醒时启动保活）
      * 当事件在24小时内有提醒时，启动前台服务确保APP存活
+     *
+     * ⚠️ 方案B：此功能已合并到PersistentNotificationService，不再需要单独启动
+     * 现在由常驻通知服务统一负责保活和提醒检查
      */
+    @Deprecated("已合并到PersistentNotificationService", ReplaceWith(""))
     private fun checkAndStartForegroundService(event: Event, eventCalendar: Calendar) {
-        try {
-            val now = Calendar.getInstance()
-            val timeDiffHours = (eventCalendar.timeInMillis - now.timeInMillis) / (1000 * 60 * 60)
-            
-            Log.d("ReminderManager", "检查前台服务需求: ${event.eventName}, 距离事件还有 ${timeDiffHours} 小时")
-            
-            // 如果事件在24小时内，启动前台服务保活
-            if (timeDiffHours in 0..24) {
-                Log.d("ReminderManager", "✅ 事件 ${event.eventName} 在24小时内，启动前台服务保活")
-                startForegroundServiceForReminder(event, timeDiffHours)
-            } else if (timeDiffHours < 0) {
-                // 事件已过期，检查是否有立即提醒需要前台服务
-                Log.d("ReminderManager", "⚠️ 事件 ${event.eventName} 已过期，检查立即提醒需求")
-                // 对于当天的立即提醒，也启动前台服务确保可靠性
-                startForegroundServiceForReminder(event, 0)
-            } else {
-                Log.d("ReminderManager", "ℹ️ 事件 ${event.eventName} 超过24小时，暂不启动前台服务")
-            }
-        } catch (e: Exception) {
-            Log.e("ReminderManager", "检查前台服务失败: ${e.message}")
-        }
+        // 功能已合并到PersistentNotificationService
+        // 开启常驻通知 = 完整保活 + 智能提醒检查
+        // 不需要额外的ReminderForegroundService
+        return
     }
-    
+
     /**
      * 启动前台服务用于关键提醒保活
      * 优化3的核心实现：智能启动前台服务
+     * 注意：如果开启了常驻通知，则不启动智能保活服务（避免重复通知）
+     *
+     * ⚠️ 方案B：此功能已合并到PersistentNotificationService，不再需要单独启动
+     * 现在由常驻通知服务统一负责保活和提醒检查
      */
+    @Deprecated("已合并到PersistentNotificationService", ReplaceWith(""))
     private fun startForegroundServiceForReminder(event: Event, hoursUntilEvent: Long) {
-        try {
-            val serviceIntent = Intent(context, ReminderForegroundService::class.java).apply {
-                putExtra("event_id", event.id)
-                putExtra("event_name", event.eventName)
-                putExtra("event_date", event.eventDate)
-                putExtra("hours_until_event", hoursUntilEvent)
-                putExtra("service_duration_hours", if (hoursUntilEvent <= 1) 2 else 24) // 1小时内事件保活2小时，其他保活24小时
-            }
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-                Log.d("ReminderManager", "✅ 已启动前台服务保活: ${event.eventName}, 保活时长: ${if (hoursUntilEvent <= 1) 2 else 24}小时")
-            } else {
-                context.startService(serviceIntent)
-                Log.d("ReminderManager", "✅ 已启动后台服务保活: ${event.eventName} (Android < 8.0)")
-            }
-        } catch (e: Exception) {
-            Log.e("ReminderManager", "启动前台服务失败: ${e.message}")
-        }
+        // 功能已合并到PersistentNotificationService
+        // 开启常驻通知 = 完整保活 + 智能提醒检查
+        // 不需要额外的ReminderForegroundService
+        return
     }
     
     /**
@@ -772,6 +868,123 @@ class ReminderManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e("ReminderManager", "检查前台服务状态失败: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * 降级策略：当没有精确闹钟权限时使用非精确闹钟
+     * 使用 AlarmManager.setWindow() 设置一个时间窗口内的闹钟
+     * 虽然不如精确闹钟准时，但仍能保证提醒功能正常工作
+     */
+    private fun scheduleReminderWithFallback(event: Event) {
+        try {
+            Log.d("ReminderManager", "使用降级策略设置提醒: ${event.eventName}")
+
+            // 确保通知渠道存在
+            createNotificationChannel()
+
+            // 解析事件日期，获取下次提醒时间
+            val nextReminderDate = getNextReminderDate(event.eventDate)
+            if (nextReminderDate == null) {
+                Log.e("ReminderManager", "无法解析事件日期: ${event.eventDate}")
+                return
+            }
+
+            val eventCalendar = Calendar.getInstance()
+            eventCalendar.time = nextReminderDate
+            val now = Calendar.getInstance()
+
+            // 设置多个提醒：7天前、1天前、当天
+            val reminderDays = listOf(7, 1, 0)
+            val reminderLabels = listOf("还有7天", "明天就是", "就是今天")
+
+            // 7天前和1天前只在早上8点提醒，当天有3个提醒时间
+            val reminderHoursMap = mapOf(
+                7 to listOf(8),
+                1 to listOf(8),
+                0 to listOf(0, 8, 12)
+            )
+
+            reminderDays.forEachIndexed { dayIndex, daysBefore ->
+                val reminderHours = reminderHoursMap[daysBefore] ?: listOf(8)
+
+                reminderHours.forEachIndexed { hourIndex, hour ->
+                    val reminderCalendar = eventCalendar.clone() as Calendar
+                    reminderCalendar.add(Calendar.DAY_OF_YEAR, -daysBefore)
+                    reminderCalendar.set(Calendar.HOUR_OF_DAY, hour)
+                    reminderCalendar.set(Calendar.MINUTE, 0)
+                    reminderCalendar.set(Calendar.SECOND, 0)
+                    reminderCalendar.set(Calendar.MILLISECOND, 0)
+
+                    // 检查今天是否已经发送过这个提醒
+                    if (hasReminderSentToday(event.id, daysBefore, hour)) {
+                        Log.d("ReminderManager", "降级模式: ${reminderLabels[dayIndex]}提醒(${hour}:00)已发送过，跳过: ${event.eventName}")
+                        return@forEachIndexed
+                    }
+
+                    // 只设置未来的提醒
+                    if (reminderCalendar.timeInMillis > now.timeInMillis) {
+                        val intent = Intent(context, ReminderReceiver::class.java).apply {
+                            action = "com.example.xiaomaotai.REMINDER"
+                            putExtra("event_id", event.id)
+                            putExtra("event_name", event.eventName)
+                            putExtra("event_date", event.eventDate)
+                            putExtra("days_remaining", daysBefore)
+                            putExtra("reminder_hour", hour)
+                            putExtra("reminder_label", reminderLabels[dayIndex])
+                        }
+
+                        val pendingIntent = PendingIntent.getBroadcast(
+                            context,
+                            "${event.id}_${daysBefore}_${hour}".hashCode(),
+                            intent,
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            } else {
+                                PendingIntent.FLAG_UPDATE_CURRENT
+                            }
+                        )
+
+                        try {
+                            // 使用非精确闹钟作为降级方案
+                            // setWindow 允许在指定时间窗口内触发，比 setExact 更宽松但更可靠
+                            val windowLengthMillis = 15 * 60 * 1000L // 15分钟窗口
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                // Android 6.0+ 使用 setAndAllowWhileIdle（非精确但在Doze模式下仍能工作）
+                                alarmManager.setAndAllowWhileIdle(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderCalendar.timeInMillis,
+                                    pendingIntent
+                                )
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                                // Android 4.4+ 使用 setWindow
+                                alarmManager.setWindow(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderCalendar.timeInMillis,
+                                    windowLengthMillis,
+                                    pendingIntent
+                                )
+                            } else {
+                                // 更早版本使用 set
+                                alarmManager.set(
+                                    AlarmManager.RTC_WAKEUP,
+                                    reminderCalendar.timeInMillis,
+                                    pendingIntent
+                                )
+                            }
+
+                            Log.d("ReminderManager", "✅ 降级模式: 已设置${reminderLabels[dayIndex]}提醒(${hour}:00): ${event.eventName} at ${reminderCalendar.time}")
+                        } catch (e: Exception) {
+                            Log.e("ReminderManager", "❌ 降级模式设置闹钟失败: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
+            Log.d("ReminderManager", "降级策略提醒设置完成: ${event.eventName}")
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "降级策略设置提醒失败: ${e.message}")
         }
     }
 

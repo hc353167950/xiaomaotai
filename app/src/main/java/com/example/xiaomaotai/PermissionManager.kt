@@ -113,12 +113,28 @@ class PermissionManager(private val context: Context) {
     /**
      * 获取精确闹钟权限设置Intent (Android 12+)
      * 针对vivo等国产手机优化多种跳转方式
+     * @param forceRequestMode 是否强制使用请求模式（仅在权限未授予时使用）
      */
-    fun getExactAlarmSettingsIntent(): Intent {
+    fun getExactAlarmSettingsIntent(forceRequestMode: Boolean = false): Intent {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // 优先尝试标准的精确闹钟设置页面
-            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                data = Uri.parse("package:${context.packageName}")
+            // 检查权限是否已授予
+            val alreadyGranted = hasExactAlarmPermission()
+
+            if (alreadyGranted && !forceRequestMode) {
+                // 权限已授予，跳转到闹钟和提醒的应用列表页面（查看模式）
+                try {
+                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                } catch (e: Exception) {
+                    // 如果失败，跳转到应用详情页
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                }
+            } else {
+                // 权限未授予，使用请求模式
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
             }
         } else {
             // Android 12以下跳转到应用详情页
@@ -276,11 +292,21 @@ class PermissionManager(private val context: Context) {
     
     /**
      * 获取电池优化设置Intent
+     * 根据权限状态智能选择跳转方式，避免闪退
      */
     fun getBatteryOptimizationSettingsIntent(): Intent {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
+            // 检查权限是否已授予
+            val alreadyGranted = isIgnoringBatteryOptimizations()
+
+            if (alreadyGranted) {
+                // 已在白名单中，跳转到电池优化列表页面（让用户查看或取消）
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            } else {
+                // 未在白名单中，请求加入白名单
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
             }
         } else {
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

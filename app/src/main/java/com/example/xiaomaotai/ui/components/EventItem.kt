@@ -55,11 +55,25 @@ fun EventItem(
     // 注释掉未使用的变量
     // var dragOffset by remember { mutableStateOf(Offset.Zero) }
     // val density = LocalDensity.current
-    
-    // 计算天数逻辑 - 只显示多少天之后
-    // 移除remember缓存，让倒计时天数能够每天自动更新
-    val (label, days) = calculateDaysAfter(event.eventDate)
-    
+
+    // 计算天数逻辑 - 优先使用缓存的天数
+    val (label, days) = event.cachedDays?.let { cachedDays ->
+        // 使用缓存的天数，生成对应的label
+        val labelText = when {
+            cachedDays == 0L -> "就是今天"
+            cachedDays == 1L -> "明天"
+            cachedDays == -1L -> "昨天"
+            cachedDays > 0 -> "还有${cachedDays}天"
+            else -> "${kotlin.math.abs(cachedDays)}天前"
+        }
+        android.util.Log.d("EventItem", "使用缓存天数: ${event.eventName} = $cachedDays 天, label=$labelText")
+        labelText to cachedDays
+    } ?: run {
+        // 没有缓存，重新计算（兼容旧逻辑）
+        android.util.Log.w("EventItem", "没有缓存天数，重新计算: ${event.eventName}")
+        calculateDaysAfter(event.eventDate)
+    }
+
     // 获取显示用的日期文本
     val dateDisplayText = remember(event.eventDate) {
         when {
