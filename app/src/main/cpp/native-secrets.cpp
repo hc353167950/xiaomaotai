@@ -63,24 +63,24 @@ std::string getEmailAddress() {
 
 extern "C" {
 
-JNIEXPORT jstring JNICALL
+extern JNIEXPORT jstring JNICALL
 Java_com_example_xiaomaotai_NativeSecrets_getSmtpPassword(JNIEnv *env, jobject /* this */) {
     std::string password = getDecodedPassword();
     return env->NewStringUTF(password.c_str());
 }
 
-JNIEXPORT jstring JNICALL
+extern JNIEXPORT jstring JNICALL
 Java_com_example_xiaomaotai_NativeSecrets_getSmtpUsername(JNIEnv *env, jobject /* this */) {
     std::string email = getEmailAddress();
     return env->NewStringUTF(email.c_str());
 }
 
-JNIEXPORT jstring JNICALL
+extern JNIEXPORT jstring JNICALL
 Java_com_example_xiaomaotai_NativeSecrets_getSmtpHost(JNIEnv *env, jobject /* this */) {
     return env->NewStringUTF("smtp.163.com");
 }
 
-JNIEXPORT jstring JNICALL
+extern JNIEXPORT jstring JNICALL
 Java_com_example_xiaomaotai_NativeSecrets_getSmtpPort(JNIEnv *env, jobject /* this */) {
     return env->NewStringUTF("465");
 }
