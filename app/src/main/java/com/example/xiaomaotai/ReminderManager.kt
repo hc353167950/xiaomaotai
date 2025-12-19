@@ -372,14 +372,14 @@ class ReminderManager(private val context: Context) {
                     val parts = lunarDatePart.split("-")
                     if (parts.size >= 3) {
                         val monthPart = parts[1]
-                        val lunarDay = parts[2].toInt()
-                        
+                        val lunarDay = parts[2].toIntOrNull() ?: 1
+
                         // 检查是否为闰月（格式：L06 表示闰六月）
                         val (lunarMonth, isLeap) = if (monthPart.startsWith("L")) {
-                            val actualMonth = monthPart.substring(1).toInt()
+                            val actualMonth = monthPart.substring(1).toIntOrNull() ?: 1
                             Pair(actualMonth, true)
                         } else {
-                            Pair(monthPart.toInt(), false)
+                            Pair(monthPart.toIntOrNull() ?: 1, false)
                         }
                         
                         // 使用统一的农历倒计时计算逻辑（与EventItem保持一致）

@@ -52,8 +52,10 @@ fun CustomDatePickerContent(
     // 计算当前月份的天数
     val daysInMonth = remember(selectedYear, selectedMonth, selectedTab) {
         if (selectedTab == 1) {
-            // 农历月份固定30天
-            30
+            // 农历月份：动态获取实际天数（大月30天，小月29天）
+            val isLeap = selectedMonth < 0
+            val actualMonth = kotlin.math.abs(selectedMonth)
+            LunarCalendarHelper.getLunarMonthDays(selectedYear, actualMonth, isLeap)
         } else {
             // 公历月份天数
             val cal = Calendar.getInstance()

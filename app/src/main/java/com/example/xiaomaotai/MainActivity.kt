@@ -71,6 +71,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
 
 
 
@@ -631,13 +635,13 @@ fun HomeScreen(
     var isLoading by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf("home") }
     var currentUser by remember { mutableStateOf<User?>(null) }
-    var refreshKey by remember { mutableStateOf(0) }
+    var internalRefreshKey by remember { mutableStateOf(0) }
     var forgotPasswordSource by remember { mutableStateOf("profile") }
     var showNotificationPrompt by remember { mutableStateOf(false) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
     var dragSortEvents by remember { mutableStateOf<List<Event>>(emptyList()) }
     var sortOrder by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
-    
+
     // 添加缺失的状态变量
     var isDragSortMode by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -647,6 +651,67 @@ fun HomeScreen(
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // 提取排序逻辑为独立函数，确保在所有地方都应用相同的排序规则
+    fun applySortLogic(eventsList: List<Event>): List<Event> {
+        return if (dataManager.isAutoSortExpiredEventsEnabled()) {
+            // 开启了自动排序：未过期事件在前，已过期事件在后（仅在内存中，不改数据库）
+            val (expiredEvents, upcomingEvents) = eventsList.partition { event ->
+                // 使用缓存的天数判断是否过期（负数表示已过期）
+                val days = event.cachedDays ?: 0L
+                days < 0
+            }
+
+            // 未过期事件：按剩余天数升序排序（天数越少越靠前），天数相同时按sortOrder降序
+            val sortedUpcoming = upcomingEvents.sortedWith(
+                compareBy<Event> { it.cachedDays ?: 0L }  // 使用缓存的天数，不重新计算！
+                    .thenByDescending { it.sortOrder }
+            )
+
+            // 过期事件：按sortOrder降序排序，保持用户手动排序
+            val sortedExpired = expiredEvents.sortedByDescending { it.sortOrder }
+
+            val sorted = sortedUpcoming + sortedExpired
+
+            Log.d("HomeScreen", "Applied auto-sort: ${eventsList.size} total (upcoming: ${upcomingEvents.size}, expired: ${expiredEvents.size})")
+            sorted
+        } else {
+            // 关闭了自动排序：完全按照 sortOrder 降序排列，不区分是否过期
+            val sorted = eventsList.sortedByDescending { it.sortOrder }
+            Log.d("HomeScreen", "Applied normal sort: ${eventsList.size} events")
+            sorted
+        }
+    }
+
+    // 监听生命周期，当APP从后台恢复时刷新数据
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // 从后台恢复时，重新计算天数
+                android.util.Log.d("HomeScreen", "APP从后台恢复，刷新天数数据")
+                scope.launch {
+                    try {
+                        // 重新计算每个事件的缓存天数
+                        val updatedEvents = events.map { ev ->
+                            ev.apply {
+                                cachedDays = com.example.xiaomaotai.ui.components.calculateDaysAfter(eventDate).second
+                                android.util.Log.d("HomeScreen", "刷新天数: $eventName ($eventDate) = $cachedDays 天")
+                            }
+                        }
+                        // 重新应用排序逻辑
+                        events = applySortLogic(updatedEvents)
+                    } catch (e: Exception) {
+                        android.util.Log.e("HomeScreen", "刷新天数失败", e)
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     /**
      * 判断事件今年的日期是否已过（仅用于显示排序，不修改数据库）
@@ -732,37 +797,6 @@ fun HomeScreen(
                 showAddDialog = false
                 selectedEvent = null
             }
-        }
-    }
-
-    // 提取排序逻辑为独立函数，确保在所有地方都应用相同的排序规则
-    fun applySortLogic(eventsList: List<Event>): List<Event> {
-        return if (dataManager.isAutoSortExpiredEventsEnabled()) {
-            // 开启了自动排序：未过期事件在前，已过期事件在后（仅在内存中，不改数据库）
-            val (expiredEvents, upcomingEvents) = eventsList.partition { event ->
-                // 使用缓存的天数判断是否过期（负数表示已过期）
-                val days = event.cachedDays ?: 0L
-                days < 0
-            }
-
-            // 未过期事件：按剩余天数升序排序（天数越少越靠前），天数相同时按sortOrder降序
-            val sortedUpcoming = upcomingEvents.sortedWith(
-                compareBy<Event> { it.cachedDays ?: 0L }  // 使用缓存的天数，不重新计算！
-                    .thenByDescending { it.sortOrder }
-            )
-
-            // 过期事件：按sortOrder降序排序，保持用户手动排序
-            val sortedExpired = expiredEvents.sortedByDescending { it.sortOrder }
-
-            val sorted = sortedUpcoming + sortedExpired
-
-            Log.d("HomeScreen", "Applied auto-sort: ${eventsList.size} total (upcoming: ${upcomingEvents.size}, expired: ${expiredEvents.size})")
-            sorted
-        } else {
-            // 关闭了自动排序：完全按照 sortOrder 降序排列，不区分是否过期
-            val sorted = eventsList.sortedByDescending { it.sortOrder }
-            Log.d("HomeScreen", "Applied normal sort: ${eventsList.size} events")
-            sorted
         }
     }
 
