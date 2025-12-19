@@ -34,9 +34,30 @@ object CardStyleManager {
     
     /**
      * 获取随机卡片样式ID（用于新建事件）
+     * 不考虑已使用的颜色，纯随机
      */
     fun getRandomStyleId(): Int {
         return cardStyles.random().id
+    }
+
+    /**
+     * 获取智能随机卡片样式ID
+     * 优先选择未被使用的颜色，如果所有颜色都被使用了，则纯随机选择
+     * @param usedBackgroundIds 当前列表中已使用的背景ID列表
+     */
+    fun getSmartRandomStyleId(usedBackgroundIds: List<Int>): Int {
+        val allIds = cardStyles.map { it.id }
+
+        // 找出未被使用的颜色
+        val unusedIds = allIds.filter { it !in usedBackgroundIds }
+
+        return if (unusedIds.isNotEmpty()) {
+            // 如果有未使用的颜色，从中随机选择一个
+            unusedIds.random()
+        } else {
+            // 所有颜色都被使用了，纯随机选择
+            allIds.random()
+        }
     }
     
     /**

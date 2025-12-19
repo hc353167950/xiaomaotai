@@ -400,14 +400,20 @@ class DataManager(private val context: Context) {
     }
 
     /**
-     * 为新事件分配背景ID - 统一使用随机10张背景图
+     * 为新事件分配背景ID - 智能分配不重复的样式
      */
     private fun assignBackgroundId(event: Event): Int {
         return when {
             event.backgroundId != 0 -> event.backgroundId // 如果已经有背景ID，保持不变
             else -> {
-                // 所有事件统一从10张背景图中随机分配 (1-10)
-                CardStyleManager.getRandomStyleId()
+                // 获取当前所有事件已使用的背景ID
+                val usedBackgroundIds = if (isLoggedIn()) {
+                    localEvents.map { it.backgroundId }
+                } else {
+                    offlineEvents.map { it.backgroundId }
+                }
+                // 智能分配，优先选择未被使用的颜色
+                CardStyleManager.getSmartRandomStyleId(usedBackgroundIds)
             }
         }
     }
