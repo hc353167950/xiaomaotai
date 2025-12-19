@@ -244,31 +244,6 @@ object LunarCalendarHelper {
         currentDate: LocalDate
     ): Long {
         return try {
-            val currentYear = currentDate.year
-
-            // 添加测试验证用户的分析
-            if (currentYear == 2025 && eventMonth == 6 && eventDay == 16) {
-                try {
-                    val normal = lunarToSolar(2025, 6, 16, false)
-                    val leap = lunarToSolar(2025, 6, 16, true)
-                    val leapMonth = getLeapMonth(2025)
-                    Log.d("LunarTest", "=== 验证用户分析 ===")
-                    Log.d("LunarTest", "2025年闰月: $leapMonth")
-                    Log.d("LunarTest", "2025年农历六月十六（普通月）-> $normal")
-                    Log.d("LunarTest", "2025年农历闰六月十六 -> $leap")
-                    Log.d("LunarTest", "当前日期: $currentDate")
-                    Log.d("LunarTest", "事件类型: ${if (isEventLeap) "闰月" else "普通月"}")
-
-                    // 比较日期
-                    val normalDate = LocalDate.parse(normal)
-                    val leapDate = LocalDate.parse(leap)
-                    Log.d("LunarTest", "普通月日期: $normalDate, 是否已过: ${normalDate.isBefore(currentDate)}")
-                    Log.d("LunarTest", "闰月日期: $leapDate, 是否已过: ${leapDate.isBefore(currentDate)}")
-                } catch (e: Exception) {
-                    Log.e("LunarTest", "测试失败", e)
-                }
-            }
-
             // 统一处理：不管用户添加的是普通月还是闰月，都按照"普通月→闰月→明年"的顺序检查
             // 直接调用统一的计算方法
             Log.d("LunarCalendarHelper", "开始统一农历计算: 事件农历${eventMonth}月${eventDay}日(用户添加类型: ${if (isEventLeap) "闰月" else "普通月"})")
@@ -358,12 +333,8 @@ object LunarCalendarHelper {
                 Log.d("LunarCalendarHelper", "⚠️ 今年没有对应的闰${eventMonth}月")
             }
 
-            // 步骤3: 普通月和闰月都过了（或今年没有闰月），计算到明年普通月的天数
+            // 步骤3: 普通月和闰月都过了（或今年没有闰月），直接计算到明年普通月的天数
             Log.d("LunarCalendarHelper", "📆 开始计算到明年普通月的天数")
-
-            val yearEnd = LocalDate.of(currentYear, 12, 31)
-            val daysToYearEnd = ChronoUnit.DAYS.between(currentDate, yearEnd) + 1
-            Log.d("LunarCalendarHelper", "今年剩余天数: $daysToYearEnd")
 
             val nextYear = currentYear + 1
             val nextYearEventDate = try {
@@ -374,11 +345,10 @@ object LunarCalendarHelper {
                 LocalDate.of(nextYear, eventMonth.coerceIn(1, 12), eventDay.coerceIn(1, 28))
             }
 
-            val daysToEventNextYear = ChronoUnit.DAYS.between(LocalDate.of(nextYear, 1, 1), nextYearEventDate)
-            val totalDays = daysToYearEnd + daysToEventNextYear
+            // 简化计算：直接计算当前日期到明年事件日期的天数差
+            val totalDays = ChronoUnit.DAYS.between(currentDate, nextYearEventDate)
 
-            Log.d("LunarCalendarHelper", "✅ 跨年计算: 今年剩余${daysToYearEnd}天 + 明年到事件${daysToEventNextYear}天 = 总计${totalDays}天")
-            Log.d("LunarCalendarHelper", "明年事件日期: $nextYearEventDate")
+            Log.d("LunarCalendarHelper", "✅ 跨年计算: 从$currentDate 到 $nextYearEventDate = ${totalDays}天")
 
             return totalDays
 
@@ -614,5 +584,36 @@ object LunarCalendarHelper {
 
     fun getDayName(day: Int): String {
         return getLunarDayName(day)
+    }
+
+    /**
+     * 获取农历月份的实际天数（大月30天，小月29天）
+     * @param year 农历年份
+     * @param month 农历月份（1-12）
+     * @param isLeap 是否为闰月
+     * @return 该月的天数（29或30）
+     */
+    fun getLunarMonthDays(year: Int, month: Int, isLeap: Boolean): Int {
+        return try {
+            val lunarYear = com.nlf.calendar.LunarYear.fromYear(year)
+            val months = lunarYear.months
+
+            // 查找对应的月份
+            for (lunarMonth in months) {
+                val monthValue = lunarMonth.month
+                val isMonthLeap = lunarMonth.isLeap
+
+                if (kotlin.math.abs(monthValue) == month && isMonthLeap == isLeap) {
+                    return lunarMonth.dayCount
+                }
+            }
+
+            // 如果没找到，返回默认值30
+            Log.w("LunarCalendarHelper", "未找到农历${year}年${if (isLeap) "闰" else ""}${month}月，使用默认30天")
+            30
+        } catch (e: Exception) {
+            Log.e("LunarCalendarHelper", "获取农历月份天数失败: ${year}年${if (isLeap) "闰" else ""}${month}月", e)
+            30 // 出错时返回默认值
+        }
     }
 }

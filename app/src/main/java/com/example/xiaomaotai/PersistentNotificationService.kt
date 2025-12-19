@@ -48,9 +48,11 @@ class PersistentNotificationService : Service() {
                 isServiceStarted = true // 标记服务已启动为前台服务
                 // 设置AlarmManager保活守护
                 setupKeepAliveAlarm()
+                // 设置零点精确更新闹钟
+                setupMidnightUpdateAlarm()
                 // 启动智能提醒检查任务（方案B：合并智能保活功能）
                 startReminderCheckTask()
-                Log.d(TAG, "常驻通知已显示，保活守护已设置，智能提醒检查已启动")
+                Log.d(TAG, "常驻通知已显示，保活守护已设置，零点更新已设置，智能提醒检查已启动")
             }
             ACTION_UPDATE_NOTIFICATION -> {
                 // 处理外部触发的通知更新请求
@@ -65,12 +67,24 @@ class PersistentNotificationService : Service() {
                     startForeground(NOTIFICATION_ID, notification)
                     isServiceStarted = true
                     setupKeepAliveAlarm()
+                    setupMidnightUpdateAlarm()
                     startReminderCheckTask()
+                }
+            }
+            ACTION_MIDNIGHT_UPDATE -> {
+                // 零点精确更新通知
+                Log.d(TAG, "零点精确更新触发，刷新常驻通知")
+                if (isServiceStarted) {
+                    updatePersistentNotification()
+                    // 设置明天零点的闹钟
+                    setupMidnightUpdateAlarm()
                 }
             }
             ACTION_STOP -> {
                 // 取消保活守护
                 cancelKeepAliveAlarm()
+                // 取消零点更新闹钟
+                cancelMidnightUpdateAlarm()
                 // 取消提醒检查任务
                 serviceJob?.cancel()
                 isServiceStarted = false // 标记服务已停止
@@ -92,6 +106,7 @@ class PersistentNotificationService : Service() {
                         startForeground(NOTIFICATION_ID, notification)
                         isServiceStarted = true
                         setupKeepAliveAlarm()
+                        setupMidnightUpdateAlarm()
                         startReminderCheckTask()
                     } else {
                         // 用户未开启常驻通知，停止服务
@@ -279,6 +294,86 @@ class PersistentNotificationService : Service() {
             Log.d(TAG, "已取消AlarmManager保活守护")
         } catch (e: Exception) {
             Log.e(TAG, "取消保活守护失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 设置零点精确更新闹钟
+     * 在每天凌晨00:00:01精确更新常驻通知，确保天数显示正确
+     */
+    private fun setupMidnightUpdateAlarm() {
+        try {
+            val intent = Intent(this, PersistentNotificationService::class.java).apply {
+                action = ACTION_MIDNIGHT_UPDATE
+            }
+
+            val pendingIntent = PendingIntent.getService(
+                this,
+                MIDNIGHT_UPDATE_REQUEST_CODE,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+            )
+
+            // 计算明天凌晨00:00:01的时间
+            val calendar = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 1)
+                set(Calendar.MILLISECOND, 0)
+            }
+
+            val triggerTime = calendar.timeInMillis
+
+            // 使用精确闹钟确保零点准时触发
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+            }
+
+            Log.d(TAG, "已设置零点精确更新闹钟，将在 ${calendar.time} 触发")
+        } catch (e: Exception) {
+            Log.e(TAG, "设置零点更新闹钟失败: ${e.message}")
+        }
+    }
+
+    /**
+     * 取消零点精确更新闹钟
+     */
+    private fun cancelMidnightUpdateAlarm() {
+        try {
+            val intent = Intent(this, PersistentNotificationService::class.java).apply {
+                action = ACTION_MIDNIGHT_UPDATE
+            }
+
+            val pendingIntent = PendingIntent.getService(
+                this,
+                MIDNIGHT_UPDATE_REQUEST_CODE,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+            )
+
+            alarmManager.cancel(pendingIntent)
+            Log.d(TAG, "已取消零点更新闹钟")
+        } catch (e: Exception) {
+            Log.e(TAG, "取消零点更新闹钟失败: ${e.message}")
         }
     }
 
@@ -713,9 +808,11 @@ class PersistentNotificationService : Service() {
         const val ACTION_START = "START_PERSISTENT_NOTIFICATION"
         const val ACTION_STOP = "STOP_PERSISTENT_NOTIFICATION"
         const val ACTION_UPDATE_NOTIFICATION = "UPDATE_NOTIFICATION"
+        const val ACTION_MIDNIGHT_UPDATE = "MIDNIGHT_UPDATE"
 
         private const val TAG = "PersistentNotification"
         private const val KEEP_ALIVE_REQUEST_CODE = 9999
+        private const val MIDNIGHT_UPDATE_REQUEST_CODE = 9998
         private const val REMINDER_CHECK_INTERVAL = 15 * 60 * 1000L // 15分钟
 
         /**

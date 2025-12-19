@@ -404,11 +404,11 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                         // 正确的闰月格式：2025-L06-10
                         val parts = lunarDatePart.split("-")
                         if (parts.size >= 3) {
-                            val year = parts[0].toInt()
+                            val year = parts[0].toIntOrNull() ?: java.time.LocalDate.now().year
                             val monthPart = parts[1] // L06
-                            val lunarDay = parts[2].toInt()
-                            val actualMonth = monthPart.substring(1).toInt()
-                            
+                            val lunarDay = parts[2].toIntOrNull() ?: 1
+                            val actualMonth = monthPart.substring(1).toIntOrNull() ?: 1
+
                             android.util.Log.d("EventItem", "闰月倒计时计算: year=$year, month=$actualMonth, day=$lunarDay, isLeap=true")
                             val result = LunarCalendarHelper.calculateLunarCountdown(
                                 year, actualMonth, lunarDay, true, today
@@ -424,10 +424,10 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                         val corrected = lunarDatePart.replace("--", "-")
                         val parts = corrected.split("-")
                         if (parts.size >= 3) {
-                            val year = parts[0].toInt()
-                            val lunarMonth = parts[1].toInt()
-                            val lunarDay = parts[2].toInt()
-                            
+                            val year = parts[0].toIntOrNull() ?: java.time.LocalDate.now().year
+                            val lunarMonth = parts[1].toIntOrNull() ?: 1
+                            val lunarDay = parts[2].toIntOrNull() ?: 1
+
                             LunarCalendarHelper.calculateLunarCountdown(
                                 year, lunarMonth, lunarDay, true, today
                             )
@@ -439,10 +439,10 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                         // 正常农历格式：2025-08-10
                         val parts = lunarDatePart.split("-")
                         if (parts.size >= 3) {
-                            val year = parts[0].toInt()
-                            val lunarMonth = parts[1].toInt()
-                            val lunarDay = parts[2].toInt()
-                            
+                            val year = parts[0].toIntOrNull() ?: java.time.LocalDate.now().year
+                            val lunarMonth = parts[1].toIntOrNull() ?: 1
+                            val lunarDay = parts[2].toIntOrNull() ?: 1
+
                             android.util.Log.d("EventItem", "普通农历倒计时计算: year=$year, month=$lunarMonth, day=$lunarDay, isLeap=false")
                             val result = LunarCalendarHelper.calculateLunarCountdown(
                                 year, lunarMonth, lunarDay, false, today
@@ -460,10 +460,14 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                 if (parts.size >= 2) {
                     val month = parts[0].toInt()
                     val day = parts[1].toInt()
-                    var target = LocalDate.of(today.year, month, day)
+                    // 处理2月29日边界情况：在非闰年使用2月28日
+                    val safeDay = if (month == 2 && day == 29 && !java.time.Year.isLeap(today.year.toLong())) 28 else day
+                    var target = LocalDate.of(today.year, month, safeDay)
                     // 如果今年的日期已过，使用明年的日期
                     if (target.isBefore(today)) {
-                        target = target.plusYears(1)
+                        val nextYear = today.year + 1
+                        val nextYearSafeDay = if (month == 2 && day == 29 && !java.time.Year.isLeap(nextYear.toLong())) 28 else day
+                        target = LocalDate.of(nextYear, month, nextYearSafeDay)
                     }
                     ChronoUnit.DAYS.between(today, target)
                 } else {
@@ -476,10 +480,14 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
                 if (parts.size >= 3) {
                     val month = parts[1].toInt()
                     val day = parts[2].toInt()
-                    var target = LocalDate.of(today.year, month, day)
+                    // 处理2月29日边界情况：在非闰年使用2月28日
+                    val safeDay = if (month == 2 && day == 29 && !java.time.Year.isLeap(today.year.toLong())) 28 else day
+                    var target = LocalDate.of(today.year, month, safeDay)
                     // 如果今年的日期已过，使用明年的日期
                     if (target.isBefore(today)) {
-                        target = target.plusYears(1)
+                        val nextYear = today.year + 1
+                        val nextYearSafeDay = if (month == 2 && day == 29 && !java.time.Year.isLeap(nextYear.toLong())) 28 else day
+                        target = LocalDate.of(nextYear, month, nextYearSafeDay)
                     }
                     ChronoUnit.DAYS.between(today, target)
                 } else {
@@ -510,58 +518,7 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
     }
 }
 
-// 农历月份名称转换
-private fun getLunarMonthName(month: Int): String {
-    return when (month) {
-        1 -> "正月"
-        2 -> "二月"
-        3 -> "三月"
-        4 -> "四月"
-        5 -> "五月"
-        6 -> "六月"
-        7 -> "七月"
-        8 -> "八月"
-        9 -> "九月"
-        10 -> "十月"
-        11 -> "冬月"
-        12 -> "腊月"
-        else -> "${month}月"
-    }
-}
-
-// 农历日期名称转换
+// 农历日期名称转换 - 使用LunarCalendarHelper统一的方法
 private fun getLunarDayName(day: Int): String {
-    return when (day) {
-        1 -> "初一"
-        2 -> "初二"
-        3 -> "初三"
-        4 -> "初四"
-        5 -> "初五"
-        6 -> "初六"
-        7 -> "初七"
-        8 -> "初八"
-        9 -> "初九"
-        10 -> "初十"
-        11 -> "十一"
-        12 -> "十二"
-        13 -> "十三"
-        14 -> "十四"
-        15 -> "十五"
-        16 -> "十六"
-        17 -> "十七"
-        18 -> "十八"
-        19 -> "十九"
-        20 -> "二十"
-        21 -> "廿一"
-        22 -> "廿二"
-        23 -> "廿三"
-        24 -> "廿四"
-        25 -> "廿五"
-        26 -> "廿六"
-        27 -> "廿七"
-        28 -> "廿八"
-        29 -> "廿九"
-        30 -> "三十"
-        else -> "${day}日"
-    }
+    return com.example.xiaomaotai.LunarCalendarHelper.getLunarDayName(day)
 }
