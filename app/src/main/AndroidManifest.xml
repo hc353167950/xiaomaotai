@@ -36,13 +36,25 @@
             </intent-filter>
         </activity>
 
-        <receiver 
+        <receiver
             android:name=".ReminderReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.example.xiaomaotai.REMINDER" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 系统时间变化广播接收器：监听时间/日期/时区变化，更新通知栏和列表 -->
+        <receiver
+            android:name=".TimeChangedReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
         

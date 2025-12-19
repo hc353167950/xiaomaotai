@@ -15,14 +15,27 @@ android {
         versionCode = 6
         versionName = "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // NDK配置
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+    }
+
+    // CMake配置
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {
         create("release") {
             keyAlias = "xiaomaotai"
-            keyPassword = "353167950"
+            keyPassword = findProperty("RELEASE_KEY_PASSWORD") as String? ?: ""
             storeFile = file("xiaomaotai-release-key.jks")
-            storePassword = "353167950"
+            storePassword = findProperty("RELEASE_STORE_PASSWORD") as String? ?: ""
         }
     }
 

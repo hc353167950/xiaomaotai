@@ -307,12 +307,28 @@ fun MainApp(dataManager: DataManager) {
     var forgotPasswordSource by remember { mutableStateOf("login") } // 跟踪忘记密码页面的来源
     var refreshKey by remember { mutableStateOf(0) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
-    
+
     // 双击返回退出相关状态
     var backPressedTime by remember { mutableStateOf(0L) }
     var showExitToast by remember { mutableStateOf(false) }
-    
+
     val permissionManager = remember { PermissionManager(context) }
+
+    // 监听生命周期，从后台恢复时刷新首页数据
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // 从后台恢复时，通过递增refreshKey触发HomeScreen刷新
+                android.util.Log.d("MainApp", "APP从后台恢复，触发refreshKey递增")
+                refreshKey += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // 检查通知权限
     fun hasNotificationPermission(): Boolean {
@@ -653,63 +669,57 @@ fun HomeScreen(
     val context = LocalContext.current
 
     // 提取排序逻辑为独立函数，确保在所有地方都应用相同的排序规则
+    // 注意：纪念日都是循环的，cachedDays永远>=0，表示距离下一次的天数
     fun applySortLogic(eventsList: List<Event>): List<Event> {
         return if (dataManager.isAutoSortExpiredEventsEnabled()) {
-            // 开启了自动排序：未过期事件在前，已过期事件在后（仅在内存中，不改数据库）
-            val (expiredEvents, upcomingEvents) = eventsList.partition { event ->
-                // 使用缓存的天数判断是否过期（负数表示已过期）
-                val days = event.cachedDays ?: 0L
-                days < 0
-            }
-
-            // 未过期事件：按剩余天数升序排序（天数越少越靠前），天数相同时按sortOrder降序
-            val sortedUpcoming = upcomingEvents.sortedWith(
-                compareBy<Event> { it.cachedDays ?: 0L }  // 使用缓存的天数，不重新计算！
+            // 开启了自动排序：按距离下次纪念日的天数升序排序（天数越少越靠前）
+            // 天数相同时按sortOrder降序（保持用户手动排序）
+            val sorted = eventsList.sortedWith(
+                compareBy<Event> { it.cachedDays ?: 0L }
                     .thenByDescending { it.sortOrder }
             )
 
-            // 过期事件：按sortOrder降序排序，保持用户手动排序
-            val sortedExpired = expiredEvents.sortedByDescending { it.sortOrder }
-
-            val sorted = sortedUpcoming + sortedExpired
-
-            Log.d("HomeScreen", "Applied auto-sort: ${eventsList.size} total (upcoming: ${upcomingEvents.size}, expired: ${expiredEvents.size})")
+            Log.d("HomeScreen", "Applied auto-sort by days: ${eventsList.size} events")
             sorted
         } else {
-            // 关闭了自动排序：完全按照 sortOrder 降序排列，不区分是否过期
+            // 关闭了自动排序：完全按照 sortOrder 降序排列
             val sorted = eventsList.sortedByDescending { it.sortOrder }
             Log.d("HomeScreen", "Applied normal sort: ${eventsList.size} events")
             sorted
         }
     }
 
-    // 监听生命周期，当APP从后台恢复时刷新数据
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                // 从后台恢复时，重新计算天数
-                android.util.Log.d("HomeScreen", "APP从后台恢复，刷新天数数据")
-                scope.launch {
-                    try {
-                        // 重新计算每个事件的缓存天数
-                        val updatedEvents = events.map { ev ->
-                            ev.apply {
-                                cachedDays = com.example.xiaomaotai.ui.components.calculateDaysAfter(eventDate).second
-                                android.util.Log.d("HomeScreen", "刷新天数: $eventName ($eventDate) = $cachedDays 天")
-                            }
-                        }
-                        // 重新应用排序逻辑
-                        events = applySortLogic(updatedEvents)
-                    } catch (e: Exception) {
-                        android.util.Log.e("HomeScreen", "刷新天数失败", e)
-                    }
-                }
+    // 注意：生命周期监听已移到MainApp层级，通过refreshKey传递触发刷新
+    // HomeScreen内部的internalRefreshKey用于广播触发的刷新
+
+    // 监听系统时间变化广播（包括系统广播和自定义广播）
+    DisposableEffect(Unit) {
+        val intentFilter = android.content.IntentFilter().apply {
+            // 自定义刷新广播
+            addAction("com.example.xiaomaotai.ACTION_REFRESH_EVENTS")
+            // 系统时间变化广播（直接在Activity中监听，确保能收到）
+            addAction(android.content.Intent.ACTION_TIME_CHANGED)
+            addAction(android.content.Intent.ACTION_DATE_CHANGED)
+            addAction(android.content.Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(ctx: android.content.Context?, intent: android.content.Intent?) {
+                android.util.Log.d("HomeScreen", "收到广播: ${intent?.action}，触发数据重新加载")
+                // 通过递增internalRefreshKey触发LaunchedEffect重新加载数据
+                internalRefreshKey += 1
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, intentFilter, android.content.Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, intentFilter)
+        }
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (e: Exception) {
+                android.util.Log.e("HomeScreen", "注销广播接收器失败", e)
+            }
         }
     }
 
@@ -812,17 +822,17 @@ fun HomeScreen(
     }
 
     // 数据加载 - 智能排序：根据设置决定是否将过期事件移到末尾（仅在内存中排序，不修改数据库）
-    LaunchedEffect(loginState, dataManager, refreshKey) {
+    // 监听 internalRefreshKey 确保从后台恢复时也能刷新数据
+    LaunchedEffect(loginState, dataManager, refreshKey, internalRefreshKey) {
         scope.launch {
             isLoading = true
             try {
                 val newEvents = dataManager.getEvents()
-                // 先计算并缓存每个事件的天数
+                // 先计算并缓存每个事件的天数 - 使用copy避免apply的引用问题
                 val eventsWithCachedDays = newEvents.map { event ->
-                    event.apply {
-                        cachedDays = com.example.xiaomaotai.ui.components.calculateDaysAfter(eventDate).second
-                        android.util.Log.d("HomeScreen", "缓存天数: $eventName ($eventDate) = $cachedDays 天")
-                    }
+                    val days = com.example.xiaomaotai.ui.components.calculateDaysAfter(event.eventDate).second
+                    android.util.Log.d("HomeScreen", "缓存天数: ${event.eventName} (${event.eventDate}) = $days 天")
+                    event.copy(cachedDays = days)
                 }
                 // 使用统一的排序逻辑
                 events = applySortLogic(eventsWithCachedDays)
@@ -869,12 +879,11 @@ fun HomeScreen(
                     if (events.isNotEmpty()) {
                         IconButton(
                             onClick = {
-                                // 在传递前，先计算并缓存每个事件的天数
+                                // 在传递前，先计算并缓存每个事件的天数 - 使用copy避免apply的引用问题
                                 val eventsWithDays = events.map { event ->
-                                    event.apply {
-                                        cachedDays = com.example.xiaomaotai.ui.components.calculateDaysAfter(eventDate).second
-                                        android.util.Log.d("MainActivity", "计算天数: $eventName = $cachedDays 天")
-                                    }
+                                    val days = com.example.xiaomaotai.ui.components.calculateDaysAfter(event.eventDate).second
+                                    android.util.Log.d("MainActivity", "计算天数: ${event.eventName} = $days 天")
+                                    event.copy(cachedDays = days)
                                 }
                                 onNavigateToSort(eventsWithDays) // 传递带天数的事件列表
                             },
@@ -1289,9 +1298,14 @@ fun HomeScreen(
                                     dataManager.addEvent(eventToSave)
                                 }
 
-                                // 获取最新数据并应用排序逻辑
+                                // 获取最新数据，重新计算天数，并应用排序逻辑
                                 val newEvents = dataManager.getEvents()
-                                events = applySortLogic(newEvents)
+                                val eventsWithCachedDays = newEvents.map { event ->
+                                    val days = com.example.xiaomaotai.ui.components.calculateDaysAfter(event.eventDate).second
+                                    android.util.Log.d("HomeScreen", "保存后重新计算天数: ${event.eventName} (${event.eventDate}) = $days 天")
+                                    event.copy(cachedDays = days)
+                                }
+                                events = applySortLogic(eventsWithCachedDays)
                             } catch (e: Exception) {
                                 Log.e("HomeScreen", "Failed to save event", e)
                             } finally {

@@ -14,7 +14,6 @@
 
 # Gradle
 /.gradle/
-/gradle/wrapper/gradle-wrapper.jar
 
 # Local configuration files
 local.properties
@@ -23,10 +22,7 @@ local.properties
 app/src/main/java/com/example/xiaomaotai/SupabaseConfig.kt
 gradle.properties
 
-# Signing keys (IMPORTANT: Keep private!)
-*.jks
-*.keystore
-app/xiaomaotai-release-key.jks
+# 注意：.jks签名文件已提交到git，密码在gradle.properties中（不提交）
 
 # Generated APKs
 *.apk
@@ -38,8 +34,8 @@ app/xiaomaotai-release-key.jks
 # Temporary files
 *.tmp
 *.temp
-*.svg
-*.png
+/*.svg
+/*.png
 temp_*
 processed_*
 
