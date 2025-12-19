@@ -1289,7 +1289,7 @@ fun HomeScreen(
                                     eventName = eventName,
                                     eventDate = eventDate,
                                     sortOrder = (events.maxOfOrNull { it.sortOrder } ?: 0) + 1,
-                                    backgroundId = CardStyleManager.getRandomStyleId() // 新建事件时分配随机样式
+                                    backgroundId = CardStyleManager.getSmartRandomStyleId(events.map { it.backgroundId }) // 智能分配不重复的样式
                                 )
 
                                 if (currentEvent != null) {
