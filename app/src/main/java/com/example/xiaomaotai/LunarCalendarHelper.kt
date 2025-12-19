@@ -234,7 +234,9 @@ object LunarCalendarHelper {
     
     /**
      * 计算农历事件的准确倒计时天数，正确处理闰月影响
-     * 统一逻辑：无论用户添加的是普通月还是闰月事件，都按照"普通月→闰月（如果有）→明年"的顺序提醒
+     * 统一逻辑：
+     * - 如果事件年份在未来，直接计算到该年份的农历日期
+     * - 否则按照"普通月→闰月（如果有）→明年"的顺序提醒
      */
     fun calculateLunarCountdown(
         eventYear: Int,
@@ -244,9 +246,29 @@ object LunarCalendarHelper {
         currentDate: LocalDate
     ): Long {
         return try {
-            // 统一处理：不管用户添加的是普通月还是闰月，都按照"普通月→闰月→明年"的顺序检查
-            // 直接调用统一的计算方法
-            Log.d("LunarCalendarHelper", "开始统一农历计算: 事件农历${eventMonth}月${eventDay}日(用户添加类型: ${if (isEventLeap) "闰月" else "普通月"})")
+            val currentYear = currentDate.year
+
+            Log.d("LunarCalendarHelper", "开始农历计算: 事件农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日, 当前年份: $currentYear")
+
+            // 检查事件年份是否在未来
+            if (eventYear > currentYear) {
+                // 未来年份的农历事件，直接计算到该年份的日期
+                val futureEventDate = try {
+                    val solarDate = lunarToSolar(eventYear, eventMonth, eventDay, isEventLeap)
+                    LocalDate.parse(solarDate)
+                } catch (e: Exception) {
+                    Log.e("LunarCalendarHelper", "未来年份农历转换失败", e)
+                    null
+                }
+
+                if (futureEventDate != null && !futureEventDate.isBefore(currentDate)) {
+                    val daysToEvent = ChronoUnit.DAYS.between(currentDate, futureEventDate)
+                    Log.d("LunarCalendarHelper", "✅ 未来年份农历事件: $futureEventDate，还有${daysToEvent}天")
+                    return daysToEvent
+                }
+            }
+
+            // 当前年份或过去年份的事件，按循环逻辑计算
             return calculateUnifiedLunarEventDays(currentDate, eventMonth, eventDay)
 
         } catch (e: Exception) {

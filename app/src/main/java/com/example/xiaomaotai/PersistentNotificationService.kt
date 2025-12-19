@@ -491,39 +491,20 @@ class PersistentNotificationService : Service() {
             val reminderManager = ReminderManager(this)
             val nextReminderDate = reminderManager.getNextReminderDate(firstEvent.eventDate)
             val dateText = if (nextReminderDate != null) {
-                // 检查事件日期格式，区分农历和公历
-                if (firstEvent.eventDate.startsWith("lunar:")) {
-                    // 农历事件：显示农历格式（如：农历五月初一、农历闰六月十六）
-                    val lunarDatePart = firstEvent.eventDate.removePrefix("lunar:")
-                    val parts = lunarDatePart.split("-")
-                    if (parts.size >= 3) {
-                        val monthPart = parts[1]
-                        val lunarDay = parts[2].toInt()
-
-                        // 检查是否为闰月（格式：L06 表示闰六月）
-                        val (lunarMonth, isLeap) = if (monthPart.startsWith("L")) {
-                            val actualMonth = monthPart.substring(1).toInt()
-                            Pair(actualMonth, true)
-                        } else {
-                            Pair(monthPart.toInt(), false)
-                        }
-
-                        // 使用LunarCalendarHelper格式化农历日期
-                        val monthName = LunarCalendarHelper.getLunarMonthName(lunarMonth, isLeap)
-                        val dayName = LunarCalendarHelper.getLunarDayName(lunarDay)
-
-                        // 闰月特殊显示：农历闰六月十六
-                        // 普通月显示：农历五月初一
-                        "农历$monthName$dayName"
-                    } else {
-                        ""
+                // 使用统一的DateParser解析事件日期
+                val parsedDate = DateParser.parse(firstEvent.eventDate)
+                when (parsedDate?.type) {
+                    DateParser.DateType.LUNAR -> {
+                        // 农历事件：使用DateParser格式化显示
+                        DateParser.formatLunarForDisplay(parsedDate)
                     }
-                } else {
-                    // 公历事件：显示公历格式（如：公历12月18日）
-                    val calendar = Calendar.getInstance().apply { time = nextReminderDate }
-                    val month = calendar.get(Calendar.MONTH) + 1
-                    val day = calendar.get(Calendar.DAY_OF_MONTH)
-                    "公历${month}月${day}日"
+                    else -> {
+                        // 公历/忽略年份事件：显示公历格式（如：公历12月18日）
+                        val calendar = Calendar.getInstance().apply { time = nextReminderDate }
+                        val month = calendar.get(Calendar.MONTH) + 1
+                        val day = calendar.get(Calendar.DAY_OF_MONTH)
+                        DateParser.formatSolarForDisplay(month, day)
+                    }
                 }
             } else {
                 ""

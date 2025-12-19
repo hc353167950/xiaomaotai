@@ -362,131 +362,65 @@ class ReminderManager(private val context: Context) {
     /**
      * 获取下次提醒日期
      * 支持公历、农历和忽略年份格式
+     * 使用统一的DateParser进行日期解析
      */
     fun getNextReminderDate(eventDate: String): Date? {
         return try {
-            when {
-                // 农历事件
-                eventDate.startsWith("lunar:") -> {
-                    val lunarDatePart = eventDate.removePrefix("lunar:")
-                    val parts = lunarDatePart.split("-")
-                    if (parts.size >= 3) {
-                        val monthPart = parts[1]
-                        val lunarDay = parts[2].toIntOrNull() ?: 1
+            val parsedDate = DateParser.parse(eventDate)
 
-                        // 检查是否为闰月（格式：L06 表示闰六月）
-                        val (lunarMonth, isLeap) = if (monthPart.startsWith("L")) {
-                            val actualMonth = monthPart.substring(1).toIntOrNull() ?: 1
-                            Pair(actualMonth, true)
-                        } else {
-                            Pair(monthPart.toIntOrNull() ?: 1, false)
-                        }
-                        
-                        // 使用统一的农历倒计时计算逻辑（与EventItem保持一致）
-                        val today = Calendar.getInstance()
-                        val currentDate = LocalDate.now()
-                        val currentYear = today.get(Calendar.YEAR)
-                        
-                        Log.d("ReminderManager", "🔍 农历提醒计算: ${lunarMonth}月${lunarDay}日(闰月:$isLeap), 当前日期: $currentDate")
-                        
-                        // 使用LunarCalendarHelper的统一农历倒计时计算
-                        val daysUntilEvent = LunarCalendarHelper.calculateLunarCountdown(
-                            currentYear, lunarMonth, lunarDay, isLeap, currentDate
-                        )
-                        
-                        Log.d("ReminderManager", "🔍 农历倒计时结果: ${daysUntilEvent}天")
-                        
-                        // 根据倒计时天数计算目标日期
-                        val targetDate: Date = if (daysUntilEvent == 0L) {
-                            // 今天就是事件日期
-                            Log.d("ReminderManager", "✅ 农历事件就是今天")
-                            today.time
-                        } else {
-                            // 计算未来的事件日期
-                            val targetCal = Calendar.getInstance()
-                            targetCal.add(Calendar.DAY_OF_YEAR, daysUntilEvent.toInt())
-                            Log.d("ReminderManager", "✅ 农历事件在${daysUntilEvent}天后: ${targetCal.time}")
-                            targetCal.time
-                        }
-                        
-                        targetDate
-                    } else null
-                }
-                
-                // 忽略年份格式 (MM-dd)
-                eventDate.matches(Regex("\\d{2}-\\d{2}")) -> {
-                    val sdf = SimpleDateFormat("MM-dd", Locale.getDefault())
-                    val parsedDate = sdf.parse(eventDate)
-                    parsedDate?.let {
-                        val cal = Calendar.getInstance()
-                        val currentYear = cal.get(Calendar.YEAR)
-                        val eventCal = Calendar.getInstance()
-                        eventCal.time = it
-                        eventCal.set(Calendar.YEAR, currentYear)
-                        
-                        val today = Calendar.getInstance()
-                        
-                        // 比较日期而不是具体时间，避免当天事件被错误判断
-                        val eventDayOfYear = eventCal.get(Calendar.DAY_OF_YEAR)
-                        val todayDayOfYear = today.get(Calendar.DAY_OF_YEAR)
-                        val eventYear = eventCal.get(Calendar.YEAR)
-                        val todayYear = today.get(Calendar.YEAR)
-                        
-                        val isEventDatePassed = (eventYear < todayYear) || 
-                                               (eventYear == todayYear && eventDayOfYear < todayDayOfYear)
-                        
-                        Log.d("ReminderManager", "📅 忽略年份解析 - 当前年: $currentYear, 事件日期: ${eventCal.time}, 今天: ${today.time}")
-                        Log.d("ReminderManager", "📅 日期比较 - 事件天数: $eventDayOfYear, 今天天数: $todayDayOfYear, 日期已过: $isEventDatePassed")
-                        
-                        // 只有日期真正过去了才设置为明年（不包括当天）
-                        if (isEventDatePassed) {
-                            eventCal.add(Calendar.YEAR, 1)
-                            Log.d("ReminderManager", "📅 日期已过，设置为明年: ${eventCal.time}")
-                        }
-                        
-                        Log.d("ReminderManager", "📅 忽略年份最终结果: ${eventCal.time}")
-                        eventCal.time
+            if (parsedDate == null) {
+                Log.w("ReminderManager", "无法解析日期格式: $eventDate")
+                return null
+            }
+
+            val today = Calendar.getInstance()
+            val currentDate = LocalDate.now()
+
+            when (parsedDate.type) {
+                DateParser.DateType.LUNAR -> {
+                    // 农历事件：使用统一的农历倒计时计算
+                    val currentYear = today.get(Calendar.YEAR)
+
+                    Log.d("ReminderManager", "🔍 农历提醒计算: ${parsedDate.month}月${parsedDate.day}日(闰月:${parsedDate.isLeapMonth}), 当前日期: $currentDate")
+
+                    val daysUntilEvent = DateParser.calculateLunarDaysUntil(parsedDate, currentDate)
+
+                    Log.d("ReminderManager", "🔍 农历倒计时结果: ${daysUntilEvent}天")
+
+                    // 根据倒计时天数计算目标日期
+                    if (daysUntilEvent == 0L) {
+                        Log.d("ReminderManager", "✅ 农历事件就是今天")
+                        today.time
+                    } else {
+                        val targetCal = Calendar.getInstance()
+                        targetCal.add(Calendar.DAY_OF_YEAR, daysUntilEvent.toInt())
+                        Log.d("ReminderManager", "✅ 农历事件在${daysUntilEvent}天后: ${targetCal.time}")
+                        targetCal.time
                     }
                 }
-                
-                // 公历格式 (yyyy-MM-dd)
-                eventDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> {
-                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                    val parsedDate = sdf.parse(eventDate)
-                    parsedDate?.let {
-                        val eventCal = Calendar.getInstance()
-                        eventCal.time = it
 
-                        val today = Calendar.getInstance()
+                DateParser.DateType.MONTH_DAY -> {
+                    // 忽略年份格式：使用统一的公历天数计算
+                    val daysUntilEvent = DateParser.calculateSolarDaysUntil(parsedDate, currentDate)
 
-                        // 比较日期而不是具体时间，避免当天事件被错误判断
-                        val eventDayOfYear = eventCal.get(Calendar.DAY_OF_YEAR)
-                        val todayDayOfYear = today.get(Calendar.DAY_OF_YEAR)
-                        val eventYear = eventCal.get(Calendar.YEAR)
-                        val todayYear = today.get(Calendar.YEAR)
+                    Log.d("ReminderManager", "📅 忽略年份格式: ${parsedDate.month}月${parsedDate.day}日, 距离${daysUntilEvent}天")
 
-                        val isEventDatePassed = (eventYear < todayYear) ||
-                                               (eventYear == todayYear && eventDayOfYear < todayDayOfYear)
-
-                        Log.d("ReminderManager", "📅 公历格式解析 - 原始日期: ${eventCal.time}, 今天: ${today.time}")
-                        Log.d("ReminderManager", "📅 日期比较 - 事件天数: $eventDayOfYear, 今天天数: $todayDayOfYear, 事件年: $eventYear, 今年: $todayYear, 日期已过: $isEventDatePassed")
-
-                        // 如果日期已过，循环到明年的相同日期
-                        if (isEventDatePassed) {
-                            // 计算需要增加几年才能到下一次纪念日
-                            val yearDiff = todayYear - eventYear
-                            eventCal.add(Calendar.YEAR, yearDiff + 1)
-                            Log.d("ReminderManager", "📅 日期已过${yearDiff}年，设置为明年同日: ${eventCal.time}")
-                        }
-
-                        Log.d("ReminderManager", "📅 公历格式最终结果: ${eventCal.time}")
-                        eventCal.time
-                    }
+                    val targetCal = Calendar.getInstance()
+                    targetCal.add(Calendar.DAY_OF_YEAR, daysUntilEvent.toInt())
+                    Log.d("ReminderManager", "📅 忽略年份最终结果: ${targetCal.time}")
+                    targetCal.time
                 }
-                
-                else -> {
-                    Log.w("ReminderManager", "不支持的日期格式: $eventDate")
-                    null
+
+                DateParser.DateType.SOLAR -> {
+                    // 公历格式：使用统一的公历天数计算
+                    val daysUntilEvent = DateParser.calculateSolarDaysUntil(parsedDate, currentDate)
+
+                    Log.d("ReminderManager", "📅 公历格式: ${parsedDate.year}年${parsedDate.month}月${parsedDate.day}日, 距离${daysUntilEvent}天")
+
+                    val targetCal = Calendar.getInstance()
+                    targetCal.add(Calendar.DAY_OF_YEAR, daysUntilEvent.toInt())
+                    Log.d("ReminderManager", "📅 公历格式最终结果: ${targetCal.time}")
+                    targetCal.time
                 }
             }
         } catch (e: Exception) {
