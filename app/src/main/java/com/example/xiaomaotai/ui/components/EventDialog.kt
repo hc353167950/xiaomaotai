@@ -18,10 +18,8 @@ import androidx.compose.ui.unit.sp
 import com.example.xiaomaotai.DataManager
 import com.example.xiaomaotai.DateParser
 import com.example.xiaomaotai.Event
-import com.example.xiaomaotai.LunarCalendarHelper
 import com.example.xiaomaotai.ValidationUtils
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)

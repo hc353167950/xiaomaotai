@@ -617,8 +617,8 @@ fun LoginScreen(
             )
         }
 
-        // 底部间距，确保可以滚动到切换链接
-        Spacer(modifier = Modifier.height(60.dp))
+        // 底部间距，确保键盘弹出时按钮也能滚动到可见位置
+        Spacer(modifier = Modifier.height(200.dp))
 
         if (isLoading) {
             GlobalLoadingDialog()
@@ -838,8 +838,8 @@ fun RegisterScreen(
             )
         }
 
-        // 底部间距，确保可以滚动到切换链接
-        Spacer(modifier = Modifier.height(60.dp))
+        // 底部间距，确保键盘弹出时按钮也能滚动到可见位置
+        Spacer(modifier = Modifier.height(200.dp))
 
         if (isLoading) {
             GlobalLoadingDialog()
