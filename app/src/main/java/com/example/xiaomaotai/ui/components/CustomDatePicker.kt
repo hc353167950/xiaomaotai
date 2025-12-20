@@ -1,16 +1,20 @@
 package com.example.xiaomaotai.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,7 +31,7 @@ fun CustomDatePickerContent(
     onDateChanged: (Int, Int, Int) -> Unit
 ) {
     val years = (1901..2099).toList()
-    
+
     // 农历月份列表（包含闰月）
     val months = remember(selectedYear, selectedTab) {
         if (selectedTab == 1) {
@@ -48,7 +52,7 @@ fun CustomDatePickerContent(
             (1..12).toList()
         }
     }
-    
+
     // 计算当前月份的天数
     val daysInMonth = remember(selectedYear, selectedMonth, selectedTab) {
         if (selectedTab == 1) {
@@ -64,17 +68,20 @@ fun CustomDatePickerContent(
         }
     }
     val days = (1..daysInMonth).toList()
-    
-    Card(
+
+    val surfaceColor = MaterialTheme.colorScheme.surface
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            .height(180.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -86,11 +93,12 @@ fun CustomDatePickerContent(
                         val newYear = years[index]
                         onDateChanged(newYear, selectedMonth, selectedDay)
                     },
-                    itemToString = { if (selectedTab == 1) LunarCalendarHelper.getYearName(it) else it.toString() },
-                    modifier = Modifier.weight(1f)
+                    itemToString = { if (selectedTab == 1) LunarCalendarHelper.getYearName(it) else "${it}年" },
+                    modifier = Modifier.weight(1f),
+                    surfaceColor = surfaceColor
                 )
             }
-            
+
             WheelPicker(
                 items = months,
                 initialIndex = months.indexOf(selectedMonth).let { index ->
@@ -110,7 +118,7 @@ fun CustomDatePickerContent(
                     val newMonth = months[index]
                     onDateChanged(selectedYear, newMonth, selectedDay)
                 },
-                itemToString = { 
+                itemToString = {
                     if (selectedTab == 1) {
                         if (it < 0) {
                             // 闰月显示
@@ -120,12 +128,13 @@ fun CustomDatePickerContent(
                             LunarCalendarHelper.getLunarMonthName(it, false)
                         }
                     } else {
-                        it.toString()
+                        "${it}月"
                     }
                 },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                surfaceColor = surfaceColor
             )
-            
+
             WheelPicker(
                 items = days,
                 initialIndex = days.indexOf(selectedDay.coerceIn(1, daysInMonth)).coerceAtLeast(0),
@@ -133,10 +142,54 @@ fun CustomDatePickerContent(
                     val newDay = days[index]
                     onDateChanged(selectedYear, selectedMonth, newDay)
                 },
-                itemToString = { if (selectedTab == 1) LunarCalendarHelper.getDayName(it) else it.toString() },
-                modifier = Modifier.weight(1f)
+                itemToString = { if (selectedTab == 1) LunarCalendarHelper.getDayName(it) else "${it}日" },
+                modifier = Modifier.weight(1f),
+                surfaceColor = surfaceColor
             )
         }
+
+        // 选中项高亮背景
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(44.dp)
+                .padding(horizontal = 12.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+        )
+
+        // 顶部渐变遮罩
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(50.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        // 底部渐变遮罩
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(50.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
+                    )
+                )
+        )
     }
 }
 
@@ -146,10 +199,11 @@ fun WheelPicker(
     initialIndex: Int,
     onIndexChanged: (Int) -> Unit,
     itemToString: (Int) -> String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    surfaceColor: Color = MaterialTheme.colorScheme.surface
 ) {
     val scope = rememberCoroutineScope()
-    val itemHeight = 40.dp
+    val itemHeight = 44.dp
     val visibleItemsCount = 3
     val totalHeight = itemHeight * visibleItemsCount
 
@@ -230,12 +284,12 @@ fun WheelPicker(
                     if (isVisible) {
                         Text(
                             text = itemToString(item),
-                            fontSize = if (isSelected) 18.sp else 14.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = if (isSelected) 17.sp else 14.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (isSelected)
                                 MaterialTheme.colorScheme.primary
                             else
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                         )
                     }
                 }

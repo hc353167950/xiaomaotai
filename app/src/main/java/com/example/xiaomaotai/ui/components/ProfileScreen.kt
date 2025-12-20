@@ -482,101 +482,70 @@ fun LoginScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 4.dp)
+            .padding(horizontal = 16.dp)
     ) {
-        Text(
-            text = "登录",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 用户名输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "用户名",
             value = username,
             onValueChange = {
                 username = it.filter { c -> c.isLetterOrDigit() }.take(20)
                 usernameError = null
                 serverErrorMessage = ""
             },
-            label = { Text("用户名", fontSize = 13.sp) },
-            placeholder = { Text("请输入用户名", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            isError = usernameError != null || serverErrorMessage.isNotEmpty(),
-            supportingText = {
-                if (usernameError != null) {
-                    Text(usernameError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            placeholder = "请输入用户名",
+            error = usernameError
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 密码输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "密码",
             value = password,
             onValueChange = {
                 password = it.take(20)
                 passwordError = null
                 serverErrorMessage = ""
             },
-            label = { Text("密码", fontSize = 13.sp) },
-            placeholder = { Text("请输入密码", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            isError = passwordError != null || serverErrorMessage.isNotEmpty(),
-            supportingText = {
-                if (passwordError != null) {
-                    Text(passwordError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)
+            placeholder = "请输入密码",
+            error = passwordError,
+            isPassword = true,
+            keyboardType = KeyboardType.Password
         )
 
         // 忘记密码链接
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 12.dp),
             horizontalArrangement = Arrangement.End
         ) {
             Text(
                 text = "忘记密码？",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 13.sp,
-                modifier = Modifier.clickable { onNavigateToForgotPassword() }
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onNavigateToForgotPassword() }
+                    .padding(vertical = 4.dp, horizontal = 2.dp)
             )
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
 
         // 服务器错误信息
         if (serverErrorMessage.isNotEmpty()) {
             Text(
                 text = serverErrorMessage,
                 color = MaterialTheme.colorScheme.error,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 12.dp)
             )
         }
+
+        Spacer(modifier = Modifier.height(28.dp))
 
         // 登录按钮
         Button(
@@ -606,30 +575,50 @@ fun LoginScreen(
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             enabled = !isLoading,
-            shape = RoundedCornerShape(10.dp)
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
         ) {
-            Text("登录")
+            Text(
+                "登录",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // 切换到注册
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("还没有账号？", fontSize = 13.sp)
+            Text(
+                "还没有账号？",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text(
                 text = "立即注册",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .padding(start = 4.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .clickable { onSwitchToRegister() }
+                    .padding(vertical = 4.dp, horizontal = 2.dp)
             )
         }
+
+        // 底部间距，确保可以滚动到切换链接
+        Spacer(modifier = Modifier.height(60.dp))
 
         if (isLoading) {
             GlobalLoadingDialog()
@@ -660,13 +649,18 @@ fun RegisterScreen(
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     fun validateAllFields(): Boolean {
         val usernameValidation = ValidationUtils.validateUsername(username)
         val nicknameValidation = ValidationUtils.validateNickname(nickname)
         val emailValidation = ValidationUtils.validateEmail(email)
         val passwordValidation = ValidationUtils.validatePassword(password, username)
-        val confirmPasswordValidation = if (password != confirmPassword) "两次输入的密码不一致" else null
+        val confirmPasswordValidation = when {
+            confirmPassword.isEmpty() -> "请再次输入密码"
+            password != confirmPassword -> "两次输入的密码不一致"
+            else -> null
+        }
 
         usernameError = if (!usernameValidation.isValid) usernameValidation.message else null
         nicknameError = if (!nicknameValidation.isValid) nicknameValidation.message else null
@@ -682,192 +676,231 @@ fun RegisterScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
+            .verticalScroll(scrollState)
             .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 4.dp)
+            .padding(horizontal = 16.dp)
     ) {
-        Text(
-            text = "注册",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 用户名输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "用户名",
             value = username,
             onValueChange = {
                 username = it.filter { char -> char.isLetterOrDigit() }.take(20)
                 usernameError = null
                 serverErrorMessage = ""
             },
-            label = { Text("用户名", fontSize = 13.sp) },
-            placeholder = { Text("请输入用户名 (仅英文和数字)", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            isError = usernameError != null,
-            supportingText = {
-                if (usernameError != null) {
-                    Text(usernameError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp)
+            placeholder = "仅支持英文和数字",
+            error = usernameError
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 昵称输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "昵称",
             value = nickname,
             onValueChange = {
                 nickname = it.take(10)
                 nicknameError = null
             },
-            label = { Text("昵称", fontSize = 13.sp) },
-            placeholder = { Text("请输入昵称", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            isError = nicknameError != null,
-            supportingText = {
-                if (nicknameError != null) {
-                    Text(nicknameError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp)
+            placeholder = "请输入昵称",
+            error = nicknameError
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 邮箱输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "邮箱",
             value = email,
             onValueChange = {
                 email = it
                 emailError = null
             },
-            label = { Text("邮箱", fontSize = 13.sp) },
-            placeholder = { Text("请输入邮箱", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            isError = emailError != null,
-            supportingText = {
-                if (emailError != null) {
-                    Text(emailError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp)
+            placeholder = "用于找回密码",
+            error = emailError,
+            keyboardType = KeyboardType.Email
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 密码输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "密码",
             value = password,
             onValueChange = {
                 password = it.take(20)
                 passwordError = null
             },
-            label = { Text("密码", fontSize = 13.sp) },
-            placeholder = { Text("请输入密码", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            isError = passwordError != null,
-            supportingText = {
-                if (passwordError != null) {
-                    Text(passwordError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp)
+            placeholder = "6-12位英文或数字",
+            error = passwordError,
+            isPassword = true,
+            keyboardType = KeyboardType.Password
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // 确认密码输入框
-        OutlinedTextField(
+        StyledInputField(
+            label = "确认密码",
             value = confirmPassword,
             onValueChange = {
                 confirmPassword = it.take(20)
                 confirmPasswordError = null
             },
-            label = { Text("确认密码", fontSize = 13.sp) },
-            placeholder = { Text("再输入一遍密码", fontSize = 13.sp) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            isError = confirmPasswordError != null,
-            supportingText = {
-                if (confirmPasswordError != null) {
-                    Text(confirmPasswordError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                }
-            },
-            shape = RoundedCornerShape(10.dp)
+            placeholder = "再输入一遍密码",
+            error = confirmPasswordError,
+            isPassword = true,
+            keyboardType = KeyboardType.Password
         )
-
-        Spacer(modifier = Modifier.height(14.dp))
 
         // 服务器错误信息
         if (serverErrorMessage.isNotEmpty()) {
             Text(
                 text = serverErrorMessage,
                 color = MaterialTheme.colorScheme.error,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp)
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 12.dp)
             )
         }
+
+        Spacer(modifier = Modifier.height(28.dp))
 
         // 注册按钮
         Button(
             onClick = {
-                if (validateAllFields()) {
+                val isValid = validateAllFields()
+                if (!isValid) {
+                    // 验证失败时滚动到底部，确保错误提示可见
                     scope.launch {
-                        isLoading = true
-                        serverErrorMessage = ""
-                        try {
-                            val result = dataManager.registerUser(username, nickname, email, password)
-                            if (result.isSuccess) {
-                                val user = result.getOrNull()!!
-                                onRegisterSuccess(user)
-                                Toast.makeText(context, "注册成功", Toast.LENGTH_SHORT).show()
-                            } else {
-                                serverErrorMessage = result.exceptionOrNull()?.message ?: "注册失败"
-                            }
-                        } finally {
-                            isLoading = false
+                        scrollState.animateScrollTo(scrollState.maxValue)
+                    }
+                    return@Button
+                }
+                scope.launch {
+                    isLoading = true
+                    serverErrorMessage = ""
+                    try {
+                        val result = dataManager.registerUser(username, nickname, email, password)
+                        if (result.isSuccess) {
+                            val user = result.getOrNull()!!
+                            onRegisterSuccess(user)
+                            Toast.makeText(context, "注册成功", Toast.LENGTH_SHORT).show()
+                        } else {
+                            serverErrorMessage = result.exceptionOrNull()?.message ?: "注册失败"
                         }
+                    } finally {
+                        isLoading = false
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             enabled = !isLoading,
-            shape = RoundedCornerShape(10.dp)
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
         ) {
-            Text("注册")
+            Text(
+                "注册",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // 切换到登录
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("已有账号？", fontSize = 13.sp)
+            Text(
+                "已有账号？",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Text(
                 text = "立即登录",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .padding(start = 4.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .clickable { onSwitchToLogin() }
+                    .padding(vertical = 4.dp, horizontal = 2.dp)
             )
         }
 
+        // 底部间距，确保可以滚动到切换链接
+        Spacer(modifier = Modifier.height(60.dp))
+
         if (isLoading) {
             GlobalLoadingDialog()
+        }
+    }
+}
+
+/**
+ * 统一风格的输入框组件
+ */
+@Composable
+fun StyledInputField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    error: String? = null,
+    isPassword: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = {
+                Text(
+                    placeholder,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = if (isPassword) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            isError = error != null,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                errorBorderColor = MaterialTheme.colorScheme.error
+            )
+        )
+
+        if (error != null) {
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 6.dp)
+            )
         }
     }
 }
