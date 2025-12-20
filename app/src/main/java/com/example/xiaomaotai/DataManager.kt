@@ -46,7 +46,7 @@ class DataManager(private val context: Context) {
                 localEvents = result.getOrNull() ?: emptyList()
                 Log.d(TAG, "Successfully loaded ${localEvents.size} events.")
                 saveEventsLocally(localEvents)
-                
+
                 // 为所有加载的事件设置提醒
                 localEvents.forEach { event ->
                     try {
@@ -57,6 +57,8 @@ class DataManager(private val context: Context) {
                     }
                 }
                 Log.d(TAG, "已为${localEvents.size}个事件设置提醒")
+                // 触发常驻通知更新，显示登录后的事件数据
+                updatePersistentNotificationIfEnabled()
             } else {
                 Log.e(TAG, "Failed to get events: ${result.exceptionOrNull()?.message}")
             }
@@ -317,6 +319,8 @@ class DataManager(private val context: Context) {
             .commit()
         localEvents = emptyList()
         offlineEvents = emptyList() // 清空离线事件列表
+        // 触发常驻通知更新，显示退出后的状态
+        updatePersistentNotificationIfEnabled()
     }
 
     fun isLoggedIn(): Boolean {
