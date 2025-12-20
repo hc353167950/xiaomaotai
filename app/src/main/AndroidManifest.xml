@@ -57,6 +57,16 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- 零点更新广播接收器：专门用于零点时刻更新常驻通知天数 -->
+        <receiver
+            android:name=".MidnightUpdateReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.xiaomaotai.ACTION_MIDNIGHT_UPDATE" />
+            </intent-filter>
+        </receiver>
         
         <!-- 前台服务：用于在Android 15等高版本上保证APP被杀死后仍能发送提醒 -->
         <service
