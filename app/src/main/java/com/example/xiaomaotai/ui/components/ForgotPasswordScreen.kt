@@ -14,12 +14,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.xiaomaotai.DataManager
@@ -95,10 +93,9 @@ fun ForgotPasswordScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .verticalScroll(scrollState)
                 .imePadding()
         ) {
-            // 顶部导航栏
+            // 顶部导航栏 - 固定在顶部
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -122,10 +119,12 @@ fun ForgotPasswordScreen(
                 )
             }
 
-            // 内容区域
+            // 可滚动的内容区域
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(scrollState)
                     .padding(horizontal = 20.dp)
                     .padding(top = 16.dp)
             ) {
@@ -333,10 +332,8 @@ fun ForgotPasswordScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // 底部额外空间，确保错误提示出现时有足够滚动空间
-                Spacer(modifier = Modifier.height(120.dp))
+                // 底部间距，确保键盘弹出时按钮也能滚动到可见位置
+                Spacer(modifier = Modifier.height(200.dp))
             }
         }
 
