@@ -576,6 +576,86 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             }
         }
 
+        // 无障碍保活通知设置（系统级保活，与无障碍服务状态绑定）
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        ) {
+            val dataManager = remember { DataManager(context) }
+            var isAccessibilityEnabled by remember { mutableStateOf(NotificationAccessibilityService.isServiceEnabled(context)) }
+
+            // 监听页面恢复时刷新无障碍服务状态，并自动同步设置
+            DisposableEffect(Unit) {
+                val lifecycleOwner = context as androidx.lifecycle.LifecycleOwner
+                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                        val newState = NotificationAccessibilityService.isServiceEnabled(context)
+                        if (newState != isAccessibilityEnabled) {
+                            isAccessibilityEnabled = newState
+                            // 自动同步：无障碍服务开启时自动启用通知功能
+                            dataManager.setAccessibilityNotification(newState)
+                        }
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            // 点击跳转到无障碍设置页面（使用安全跳转方法）
+                            val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            safeStartSettingsActivity(context, intent)
+                        },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isAccessibilityEnabled)
+                                "无障碍服务已启用"
+                            else
+                                "无障碍服务未开启",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isAccessibilityEnabled)
+                                "已开启，通知栏事件天数将实时显示"
+                            else
+                                "如果通知栏天数未实时更新，可开启此设置",
+                            fontSize = 13.sp,
+                            color = if (isAccessibilityEnabled)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = isAccessibilityEnabled,
+                        onCheckedChange = {
+                            // 点击跳转到无障碍设置页面（使用安全跳转方法）
+                            val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            safeStartSettingsActivity(context, intent)
+                        }
+                    )
+                }
+            }
+        }
+
         // 自动排序过期事件设置
         Card(
             modifier = Modifier.fillMaxWidth(),

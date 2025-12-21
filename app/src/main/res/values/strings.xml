@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">小茅台</string>
+    <string name="accessibility_service_description">启用此服务后，小茅台可以在通知栏实时显示纪念日倒计时，即使应用在后台被清理也能保持更新。\n\n此服务仅用于更新通知栏，不会读取或收集任何其他信息。</string>
 </resources>
