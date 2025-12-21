@@ -490,6 +490,15 @@ class DataManager(private val context: Context) {
         sharedPreferences.edit().putBoolean("auto_sort_expired_events", enabled).commit()
     }
 
+    // 无障碍通知设置（通过无障碍服务保活更新通知栏）
+    fun isAccessibilityNotificationEnabled(): Boolean {
+        return sharedPreferences.getBoolean("accessibility_notification", false)
+    }
+
+    fun setAccessibilityNotification(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("accessibility_notification", enabled).commit()
+    }
+
     // 保存上次登录的用户名
     fun saveLastUsername(username: String) {
         sharedPreferences.edit().putString("last_login_username", username).commit()
