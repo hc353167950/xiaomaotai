@@ -584,20 +584,14 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            val dataManager = remember { DataManager(context) }
             var isAccessibilityEnabled by remember { mutableStateOf(NotificationAccessibilityService.isServiceEnabled(context)) }
 
-            // 监听页面恢复时刷新无障碍服务状态，并自动同步设置
+            // 监听页面恢复时刷新无障碍服务状态
             DisposableEffect(Unit) {
                 val lifecycleOwner = context as androidx.lifecycle.LifecycleOwner
                 val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                     if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                        val newState = NotificationAccessibilityService.isServiceEnabled(context)
-                        if (newState != isAccessibilityEnabled) {
-                            isAccessibilityEnabled = newState
-                            // 自动同步：无障碍服务开启时自动启用通知功能
-                            dataManager.setAccessibilityNotification(newState)
-                        }
+                        isAccessibilityEnabled = NotificationAccessibilityService.isServiceEnabled(context)
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
