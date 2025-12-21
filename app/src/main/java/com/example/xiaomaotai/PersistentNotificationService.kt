@@ -778,9 +778,17 @@ class PersistentNotificationService : Service() {
         /**
          * 触发更新常驻通知内容
          * 用于 DataManager CRUD 操作后立即更新通知
+         * 只有在常驻通知开启时才会启动服务
          */
         fun updateNotification(context: Context) {
             try {
+                // 先检查常驻通知是否开启，避免不必要的服务启动
+                val dataManager = DataManager(context)
+                if (!dataManager.isPersistentNotificationEnabled()) {
+                    Log.d(TAG, "常驻通知未开启，跳过更新")
+                    return
+                }
+
                 val intent = Intent(context, PersistentNotificationService::class.java).apply {
                     action = ACTION_UPDATE_NOTIFICATION
                 }
