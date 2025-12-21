@@ -34,6 +34,7 @@ class PersistentNotificationService : Service() {
     private var serviceJob: Job? = null // 用于管理提醒检查协程任务
     private var isServiceStarted = false // 标记服务是否已启动为前台服务
     private var timeChangeReceiver: BroadcastReceiver? = null // 系统时间变化广播接收器
+    private var lastUpdateTime = 0L // 防抖：记录上次更新时间
 
     override fun onCreate() {
         super.onCreate()
@@ -511,9 +512,18 @@ class PersistentNotificationService : Service() {
     /**
      * 更新常驻通知内容
      * 只有在常驻通知开启时才执行更新
+     * 包含防抖机制，1秒内不重复更新
      */
     private fun updatePersistentNotification() {
         try {
+            // 防抖：1秒内不重复更新
+            val now = System.currentTimeMillis()
+            if (now - lastUpdateTime < 1000) {
+                Log.d(TAG, "防抖：跳过重复更新")
+                return
+            }
+            lastUpdateTime = now
+
             // 检查常驻通知是否开启
             val dataManager = DataManager(this)
             if (!dataManager.isPersistentNotificationEnabled()) {

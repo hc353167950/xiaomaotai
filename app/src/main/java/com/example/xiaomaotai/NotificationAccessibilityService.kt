@@ -56,7 +56,11 @@ class NotificationAccessibilityService : AccessibilityService() {
 
     private val updateRunnable = object : Runnable {
         override fun run() {
-            checkAndUpdateNotification()
+            // 只有常驻通知开启时才执行检查，避免资源浪费
+            val dataManager = DataManager(this@NotificationAccessibilityService)
+            if (dataManager.isPersistentNotificationEnabled()) {
+                checkAndUpdateNotification()
+            }
             // 继续下一次定时检查
             handler.postDelayed(this, UPDATE_INTERVAL)
         }
@@ -93,8 +97,12 @@ class NotificationAccessibilityService : AccessibilityService() {
         // 监听窗口状态变化（包括解锁屏幕、切换应用等）
         when (event?.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // 检查是否跨天了，如果是则更新通知
-                checkAndUpdateNotification()
+                // 只有常驻通知开启时才检查，避免资源浪费
+                val dataManager = DataManager(this)
+                if (dataManager.isPersistentNotificationEnabled()) {
+                    // 检查是否跨天了，如果是则更新通知
+                    checkAndUpdateNotification()
+                }
             }
         }
     }

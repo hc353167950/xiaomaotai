@@ -175,17 +175,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-
-        // 只在Activity真正退出时停止常驻通知服务
-        // isFinishing为true表示Activity正在结束（用户退出），为false表示配置更改（如旋转屏幕）
-        if (isFinishing) {
-            val dataManager = DataManager(this)
-            // 如果开启了常驻通知，在APP退出时停止服务
-            if (dataManager.isPersistentNotificationEnabled()) {
-                PersistentNotificationService.stopService(this)
-                Log.d("MainActivity", "APP退出，停止常驻通知服务")
-            }
-        }
+        // 不再在APP退出时停止常驻通知服务
+        // 常驻通知的目的就是APP退出后仍然显示
+        // 只有用户主动关闭开关时才停止服务（在SettingsScreen中处理）
     }
 
     /**
