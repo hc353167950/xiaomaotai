@@ -6,8 +6,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -31,12 +33,15 @@ class PersistentNotificationService : Service() {
     private lateinit var alarmManager: AlarmManager
     private var serviceJob: Job? = null // 用于管理提醒检查协程任务
     private var isServiceStarted = false // 标记服务是否已启动为前台服务
+    private var timeChangeReceiver: BroadcastReceiver? = null // 系统时间变化广播接收器
 
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         createNotificationChannel()
+        // 注册系统时间变化广播接收器
+        registerTimeChangeReceiver()
         Log.d(TAG, "常驻通知服务已创建")
     }
 
@@ -48,42 +53,36 @@ class PersistentNotificationService : Service() {
                 isServiceStarted = true // 标记服务已启动为前台服务
                 // 设置AlarmManager保活守护
                 setupKeepAliveAlarm()
-                // 设置零点精确更新闹钟（使用 BroadcastReceiver 方式，更可靠）
-                MidnightAlarmHelper.setupMidnightAlarm(this)
                 // 启动智能提醒检查任务（方案B：合并智能保活功能）
                 startReminderCheckTask()
-                Log.d(TAG, "常驻通知已显示，保活守护已设置，零点更新已设置，智能提醒检查已启动")
+                Log.d(TAG, "常驻通知已显示，保活守护已设置，智能提醒检查已启动")
             }
             ACTION_UPDATE_NOTIFICATION -> {
                 // 处理外部触发的通知更新请求
+                // 首先检查用户是否开启了常驻通知
+                val dataManager = DataManager(this)
+                if (!dataManager.isPersistentNotificationEnabled()) {
+                    Log.d(TAG, "收到更新通知请求，但常驻通知未开启，忽略")
+                    return START_NOT_STICKY
+                }
+
                 // 只有在服务已经启动为前台服务时才更新通知
                 if (isServiceStarted) {
                     triggerNotificationUpdate()
                     Log.d(TAG, "收到更新通知请求，已触发更新")
                 } else {
                     // 如果服务还未启动为前台服务，按照正常启动流程处理
-                    Log.d(TAG, "收到更新通知请求，但服务未启动，按正常流程启动")
+                    Log.d(TAG, "收到更新通知请求，服务未启动，按正常流程启动")
                     val notification = createPersistentNotification()
                     startForeground(NOTIFICATION_ID, notification)
                     isServiceStarted = true
                     setupKeepAliveAlarm()
-                    MidnightAlarmHelper.setupMidnightAlarm(this)
                     startReminderCheckTask()
-                }
-            }
-            ACTION_MIDNIGHT_UPDATE -> {
-                // 零点精确更新通知
-                Log.d(TAG, "零点精确更新触发，刷新常驻通知")
-                if (isServiceStarted) {
-                    updatePersistentNotification()
-                    // 注意：不需要在这里重新设置闹钟，MidnightUpdateReceiver 会处理
                 }
             }
             ACTION_STOP -> {
                 // 取消保活守护
                 cancelKeepAliveAlarm()
-                // 取消零点更新闹钟
-                MidnightAlarmHelper.cancelMidnightAlarm(this)
                 // 取消提醒检查任务
                 serviceJob?.cancel()
                 isServiceStarted = false // 标记服务已停止
@@ -105,7 +104,6 @@ class PersistentNotificationService : Service() {
                         startForeground(NOTIFICATION_ID, notification)
                         isServiceStarted = true
                         setupKeepAliveAlarm()
-                        MidnightAlarmHelper.setupMidnightAlarm(this)
                         startReminderCheckTask()
                     } else {
                         // 用户未开启常驻通知，停止服务
@@ -146,6 +144,8 @@ class PersistentNotificationService : Service() {
         super.onDestroy()
         // 取消提醒检查任务
         serviceJob?.cancel()
+        // 注销系统时间变化广播接收器
+        unregisterTimeChangeReceiver()
         Log.d(TAG, "常驻通知服务已销毁")
 
         // 检查是否应该重启服务
@@ -297,6 +297,54 @@ class PersistentNotificationService : Service() {
     }
 
     // ============ 智能提醒检查功能 (方案B：合并智能保活) ============
+
+    /**
+     * 注册系统时间变化广播接收器
+     * 监听 ACTION_TIME_CHANGED、ACTION_DATE_CHANGED、ACTION_TIMEZONE_CHANGED
+     * 当系统时间被手动修改时，立即更新常驻通知内容
+     */
+    private fun registerTimeChangeReceiver() {
+        if (timeChangeReceiver != null) {
+            Log.d(TAG, "时间变化广播接收器已注册，跳过")
+            return
+        }
+
+        timeChangeReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                Log.d(TAG, "收到系统时间变化广播: ${intent?.action}")
+                // 立即更新常驻通知内容
+                updatePersistentNotification()
+            }
+        }
+
+        val intentFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_DATE_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(timeChangeReceiver, intentFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(timeChangeReceiver, intentFilter)
+        }
+        Log.d(TAG, "已注册系统时间变化广播接收器")
+    }
+
+    /**
+     * 注销系统时间变化广播接收器
+     */
+    private fun unregisterTimeChangeReceiver() {
+        timeChangeReceiver?.let {
+            try {
+                unregisterReceiver(it)
+                Log.d(TAG, "已注销系统时间变化广播接收器")
+            } catch (e: Exception) {
+                Log.e(TAG, "注销时间变化广播接收器失败: ${e.message}")
+            }
+        }
+        timeChangeReceiver = null
+    }
 
     /**
      * 获取最近的即将到来的事件列表（支持同一天多个事件）
@@ -462,9 +510,17 @@ class PersistentNotificationService : Service() {
 
     /**
      * 更新常驻通知内容
+     * 只有在常驻通知开启时才执行更新
      */
     private fun updatePersistentNotification() {
         try {
+            // 检查常驻通知是否开启
+            val dataManager = DataManager(this)
+            if (!dataManager.isPersistentNotificationEnabled()) {
+                Log.d(TAG, "常驻通知未开启，跳过更新")
+                return
+            }
+
             val notification = createPersistentNotification()
             notificationManager.notify(NOTIFICATION_ID, notification)
             Log.d(TAG, "已更新常驻通知内容")
@@ -476,29 +532,18 @@ class PersistentNotificationService : Service() {
     /**
      * 启动提醒检查任务
      * 每15分钟检查一次是否有到期的提醒需要发送
-     * 同时定期更新常驻通知内容，在零点时刻进行特殊更新
+     * 注意：常驻通知内容的更新由以下机制触发，不在此处处理：
+     * - 用户增删改事件 → DataManager 调用 updateNotification()
+     * - 系统时间变化（包括零点） → timeChangeReceiver 广播接收器
      */
     private fun startReminderCheckTask() {
         serviceJob?.cancel() // 取消之前的任务
 
         serviceJob = CoroutineScope(Dispatchers.IO).launch {
             try {
-                var lastUpdateDay = getCurrentDay() // 记录上次更新的日期
-
                 while (true) {
                     // 检查并发送到期的提醒
                     checkAndSendReminders()
-
-                    // 更新常驻通知内容
-                    updatePersistentNotification()
-
-                    // 检查是否跨越了零点（日期变化）
-                    val currentDay = getCurrentDay()
-                    if (currentDay != lastUpdateDay) {
-                        Log.d(TAG, "检测到日期变化（零点时刻），强制更新常驻通知")
-                        updatePersistentNotification()
-                        lastUpdateDay = currentDay
-                    }
 
                     // 检查是否还有任何事件，如果没有则停止服务
                     if (!hasAnyEvents()) {
@@ -681,15 +726,6 @@ class PersistentNotificationService : Service() {
     }
 
     /**
-     * 获取当前日期字符串（用于检测零点时刻）
-     */
-    private fun getCurrentDay(): String {
-        val calendar = Calendar.getInstance()
-        // 注意：Calendar.MONTH 是 0-11，需要+1
-        return "${calendar.get(Calendar.YEAR)}-${calendar.get(Calendar.MONTH) + 1}-${calendar.get(Calendar.DAY_OF_MONTH)}"
-    }
-
-    /**
      * 提供公开的方法供外部触发常驻通知更新
      * 用于 DataManager 的 CRUD 操作后立即更新通知内容
      */
@@ -708,7 +744,6 @@ class PersistentNotificationService : Service() {
         const val ACTION_START = "START_PERSISTENT_NOTIFICATION"
         const val ACTION_STOP = "STOP_PERSISTENT_NOTIFICATION"
         const val ACTION_UPDATE_NOTIFICATION = "UPDATE_NOTIFICATION"
-        const val ACTION_MIDNIGHT_UPDATE = "MIDNIGHT_UPDATE"
 
         private const val TAG = "PersistentNotification"
         private const val KEEP_ALIVE_REQUEST_CODE = 9999

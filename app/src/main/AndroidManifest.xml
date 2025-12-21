@@ -46,28 +46,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- 系统时间变化广播接收器：监听时间/日期/时区变化，更新通知栏和列表 -->
-        <receiver
-            android:name=".TimeChangedReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.TIME_SET" />
-                <action android:name="android.intent.action.DATE_CHANGED" />
-                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- 零点更新广播接收器：专门用于零点时刻更新常驻通知天数 -->
-        <receiver
-            android:name=".MidnightUpdateReceiver"
-            android:enabled="true"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.example.xiaomaotai.ACTION_MIDNIGHT_UPDATE" />
-            </intent-filter>
-        </receiver>
-        
         <!-- 前台服务：用于在Android 15等高版本上保证APP被杀死后仍能发送提醒 -->
         <service
             android:name=".ReminderForegroundService"
