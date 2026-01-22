@@ -264,8 +264,16 @@ object DateParser {
             return 0L
         }
 
+        // 如果没有指定年份，使用当前农历年份（而不是公历年份）
+        val eventYear = parsedDate.year ?: try {
+            val solar = com.nlf.calendar.Solar(today.year, today.monthValue, today.dayOfMonth)
+            solar.lunar.year
+        } catch (e: Exception) {
+            today.year // 出错时使用公历年份作为后备
+        }
+
         return LunarCalendarHelper.calculateLunarCountdown(
-            parsedDate.year ?: today.year,
+            eventYear,
             parsedDate.month,
             parsedDate.day,
             parsedDate.isLeapMonth,
