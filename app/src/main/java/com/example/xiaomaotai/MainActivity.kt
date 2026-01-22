@@ -39,7 +39,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -362,27 +364,41 @@ fun MainApp(dataManager: DataManager) {
     Scaffold(
         bottomBar = {
             if (currentScreen != "sort" && currentScreen != "mahjong_history") {
-                NavigationBar(
-                    modifier = Modifier.height(64.dp) // 缩小底部导航栏高度
+                // 自定义底部导航栏，限制点击区域只在图标和文字附近
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
                 ) {
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.Home, contentDescription = "首页") },
-                        label = { Text("首页") },
-                        selected = currentScreen == "home",
-                        onClick = { currentScreen = "home" }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.Star, contentDescription = "晃晃") },
-                        label = { Text("晃晃") },
-                        selected = currentScreen == "mahjong",
-                        onClick = { currentScreen = "mahjong" }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.Person, contentDescription = "我的") },
-                        label = { Text("我的") },
-                        selected = currentScreen == "profile",
-                        onClick = { currentScreen = "profile" }
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 首页Tab
+                        CustomNavigationItem(
+                            icon = Icons.Default.Home,
+                            label = "首页",
+                            selected = currentScreen == "home",
+                            onClick = { currentScreen = "home" }
+                        )
+//                        // 晃晃Tab
+//                        CustomNavigationItem(
+//                            icon = Icons.Default.Star,
+//                            label = "晃晃",
+//                            selected = currentScreen == "mahjong",
+//                            onClick = { currentScreen = "mahjong" }
+//                        )
+                        // 我的Tab
+                        CustomNavigationItem(
+                            icon = Icons.Default.Person,
+                            label = "我的",
+                            selected = currentScreen == "profile",
+                            onClick = { currentScreen = "profile" }
+                        )
+                    }
                 }
             }
         }
@@ -1358,3 +1374,45 @@ fun HomeScreen(
     }
 }
 
+/**
+ * 自定义底部导航项组件
+ * 功能描述: 限制点击区域只在图标和文字附近，点击空白区域不触发切换
+ * Args:
+ *     icon (ImageVector): 图标
+ *     label (String): 标签文字
+ *     selected (Boolean): 是否选中
+ *     onClick (() -> Unit): 点击回调
+ */
+@Composable
+fun CustomNavigationItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    // 点击区域限制在图标和文字周围，使用固定宽度而非填充整个空间
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (selected) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}

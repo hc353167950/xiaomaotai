@@ -248,27 +248,32 @@ object LunarCalendarHelper {
         return try {
             val currentYear = currentDate.year
 
-            Log.d("LunarCalendarHelper", "开始农历计算: 事件农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日, 当前年份: $currentYear")
+            Log.d("LunarCalendarHelper", "开始农历计算: 事件农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日, 当前公历年份: $currentYear")
 
-            // 检查事件年份是否在未来
-            if (eventYear > currentYear) {
-                // 未来年份的农历事件，直接计算到该年份的日期
-                val futureEventDate = try {
-                    val solarDate = lunarToSolar(eventYear, eventMonth, eventDay, isEventLeap)
-                    LocalDate.parse(solarDate)
-                } catch (e: Exception) {
-                    Log.e("LunarCalendarHelper", "未来年份农历转换失败", e)
-                    null
-                }
-
-                if (futureEventDate != null && !futureEventDate.isBefore(currentDate)) {
-                    val daysToEvent = ChronoUnit.DAYS.between(currentDate, futureEventDate)
-                    Log.d("LunarCalendarHelper", "✅ 未来年份农历事件: $futureEventDate，还有${daysToEvent}天")
-                    return daysToEvent
-                }
+            // 首先将农历日期转换为公历日期，然后与当前日期比较
+            // 不能直接比较农历年份和公历年份，因为农历腊月可能对应下一个公历年
+            val eventSolarDate = try {
+                val solarDate = lunarToSolar(eventYear, eventMonth, eventDay, isEventLeap)
+                LocalDate.parse(solarDate)
+            } catch (e: Exception) {
+                Log.e("LunarCalendarHelper", "农历转公历失败: 农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日", e)
+                null
             }
 
-            // 当前年份或过去年份的事件，按循环逻辑计算
+            if (eventSolarDate != null) {
+                Log.d("LunarCalendarHelper", "农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日 -> 公历${eventSolarDate}")
+                
+                // 如果事件的公历日期在今天或之后，直接计算天数差
+                if (!eventSolarDate.isBefore(currentDate)) {
+                    val daysToEvent = ChronoUnit.DAYS.between(currentDate, eventSolarDate)
+                    Log.d("LunarCalendarHelper", "✅ 事件公历日期未过: $eventSolarDate，还有${daysToEvent}天")
+                    return daysToEvent
+                }
+                
+                Log.d("LunarCalendarHelper", "⚠️ 事件公历日期已过: $eventSolarDate，按循环逻辑计算下一次")
+            }
+
+            // 事件日期已过，按循环逻辑计算下一次（今年或明年的同农历日期）
             return calculateUnifiedLunarEventDays(currentDate, eventMonth, eventDay)
 
         } catch (e: Exception) {

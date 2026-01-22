@@ -17,9 +17,10 @@ object DateParser {
      * 日期类型枚举
      */
     enum class DateType {
-        LUNAR,      // 农历: lunar:2025-06-16 或 lunar:2025-L06-16
-        SOLAR,      // 公历: 2025-12-18
-        MONTH_DAY   // 忽略年份: 12-18
+        LUNAR,           // 农历: lunar:2025-06-16 或 lunar:2025-L06-16
+        SOLAR,           // 公历: 2025-12-18
+        MONTH_DAY,       // 忽略年份(公历): 12-18
+        LUNAR_MONTH_DAY  // 忽略年份(农历): lunar:06-16 或 lunar:L06-16
     }
 
     /**
@@ -42,7 +43,7 @@ object DateParser {
     fun parse(eventDate: String): ParsedDate? {
         return try {
             when {
-                // 农历格式
+                // 农历格式（包含忽略年份的农历）
                 eventDate.startsWith("lunar:") -> parseLunarDate(eventDate)
                 // 忽略年份格式 (MM-dd)
                 eventDate.matches(Regex("\\d{2}-\\d{2}")) -> parseMonthDayDate(eventDate)
@@ -65,11 +66,44 @@ object DateParser {
      * - lunar:2025-06-16 (普通月)
      * - lunar:2025-L06-16 (闰月)
      * - lunar:2025--6-16 (错误的闰月格式，兼容处理)
+     * - lunar:06-16 (忽略年份的农历)
+     * - lunar:L06-16 (忽略年份的农历闰月)
      */
     private fun parseLunarDate(eventDate: String): ParsedDate? {
         val lunarDatePart = eventDate.removePrefix("lunar:")
 
         return when {
+            // 忽略年份的农历闰月格式: L06-16
+            lunarDatePart.matches(Regex("L\\d{2}-\\d{2}")) -> {
+                val monthPart = lunarDatePart.substring(0, 3) // L06
+                val dayPart = lunarDatePart.substring(4) // 16
+                val month = monthPart.substring(1).toIntOrNull() ?: 1
+                val day = dayPart.toIntOrNull() ?: 1
+
+                ParsedDate(
+                    type = DateType.LUNAR_MONTH_DAY,
+                    year = null,
+                    month = month,
+                    day = day,
+                    isLeapMonth = true,
+                    rawDate = eventDate
+                )
+            }
+            // 忽略年份的农历普通月格式: 06-16
+            lunarDatePart.matches(Regex("\\d{2}-\\d{2}")) -> {
+                val parts = lunarDatePart.split("-")
+                val month = parts[0].toIntOrNull() ?: 1
+                val day = parts[1].toIntOrNull() ?: 1
+
+                ParsedDate(
+                    type = DateType.LUNAR_MONTH_DAY,
+                    year = null,
+                    month = month,
+                    day = day,
+                    isLeapMonth = false,
+                    rawDate = eventDate
+                )
+            }
             // 正确的闰月格式: 2025-L06-16
             lunarDatePart.contains("-L") -> {
                 val parts = lunarDatePart.split("-")
@@ -178,10 +212,19 @@ object DateParser {
     }
 
     /**
-     * 判断是否为忽略年份格式
+     * 判断是否为忽略年份格式（公历）
      */
     fun isMonthDayFormat(eventDate: String): Boolean {
         return eventDate.matches(Regex("\\d{2}-\\d{2}"))
+    }
+
+    /**
+     * 判断是否为忽略年份格式（农历）
+     */
+    fun isLunarMonthDayFormat(eventDate: String): Boolean {
+        if (!eventDate.startsWith("lunar:")) return false
+        val lunarPart = eventDate.removePrefix("lunar:")
+        return lunarPart.matches(Regex("L?\\d{2}-\\d{2}"))
     }
 
     /**
@@ -283,6 +326,35 @@ object DateParser {
     }
 
     /**
+     * 计算忽略年份的农历事件到下次的天数
+     * @param parsedDate 解析后的日期
+     * @param today 当前日期
+     * @return 天数
+     */
+    fun calculateLunarMonthDayDaysUntil(parsedDate: ParsedDate, today: LocalDate = LocalDate.now()): Long {
+        if (parsedDate.type != DateType.LUNAR_MONTH_DAY) {
+            return 0L
+        }
+
+        // 获取当前公历日期对应的农历年份
+        val currentLunarYear = try {
+            val solar = com.nlf.calendar.Solar(today.year, today.monthValue, today.dayOfMonth)
+            solar.lunar.year
+        } catch (e: Exception) {
+            today.year // 出错时使用公历年份作为后备
+        }
+
+        // 使用当前农历年份计算农历日期
+        return LunarCalendarHelper.calculateLunarCountdown(
+            currentLunarYear,
+            parsedDate.month,
+            parsedDate.day,
+            parsedDate.isLeapMonth,
+            today
+        )
+    }
+
+    /**
      * 计算事件到下次的天数（统一入口）
      * @param eventDate 事件日期字符串
      * @param today 当前日期
@@ -298,6 +370,15 @@ object DateParser {
         return when (parsedDate.type) {
             DateType.LUNAR -> {
                 val days = calculateLunarDaysUntil(parsedDate, today)
+                val displayText = when {
+                    days == 0L -> "今天"
+                    days > 0 -> "还有${days}天"
+                    else -> "已过${-days}天"
+                }
+                displayText to days
+            }
+            DateType.LUNAR_MONTH_DAY -> {
+                val days = calculateLunarMonthDayDaysUntil(parsedDate, today)
                 val displayText = when {
                     days == 0L -> "今天"
                     days > 0 -> "还有${days}天"

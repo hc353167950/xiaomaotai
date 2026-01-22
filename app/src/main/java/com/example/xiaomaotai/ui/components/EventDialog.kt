@@ -41,55 +41,130 @@ fun EventDialog(
     val parsedEventDate = remember(event?.eventDate) {
         event?.eventDate?.let { DateParser.parse(it) }
     }
+    
+    // 是否为编辑模式
+    val isEditMode = event != null
 
     // 根据事件类型选择对应的Tab
+    // 0: 公历, 1: 农历, 2: 忽略年份(公历), 3: 忽略年份(农历)
     var selectedTab by remember {
         mutableStateOf(
-            when (parsedEventDate?.type) {
-                DateParser.DateType.LUNAR -> 1 // 农历
-                DateParser.DateType.MONTH_DAY -> 2 // 忽略年份
-                else -> 0 // 公历
+            if (isEditMode) {
+                when (parsedEventDate?.type) {
+                    DateParser.DateType.LUNAR -> 1 // 农历
+                    DateParser.DateType.MONTH_DAY -> 2 // 忽略年份(公历)
+                    DateParser.DateType.LUNAR_MONTH_DAY -> 3 // 忽略年份(农历)
+                    else -> 0 // 公历
+                }
+            } else {
+                0 // 新建时默认公历
             }
         )
     }
 
-    // Initialize calendar state - 编辑时回显事件日期，新建时默认当天
-    val initialCalendar = remember {
+    // 获取当前公历日期
+    val todaySolar = remember {
         val cal = Calendar.getInstance()
-        if (parsedEventDate != null) {
-            try {
-                // 使用解析后的日期设置calendar
-                cal.set(Calendar.YEAR, parsedEventDate.year ?: cal.get(Calendar.YEAR))
-                cal.set(Calendar.MONTH, parsedEventDate.month - 1)
-                cal.set(Calendar.DAY_OF_MONTH, parsedEventDate.day)
-            } catch (e: Exception) {
-                cal.time = Date()
-            }
-        } else {
-            cal.time = Date()
+        Triple(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+    }
+    
+    // 获取当前公历日期对应的农历日期
+    val todayLunar = remember {
+        try {
+            val today = java.time.LocalDate.now()
+            val solar = com.nlf.calendar.Solar(today.year, today.monthValue, today.dayOfMonth)
+            val lunar = solar.lunar
+            val isLeap = lunar.month < 0
+            val actualMonth = if (isLeap) -lunar.month else lunar.month
+            android.util.Log.d("EventDialog", "当前公历 ${today} 对应农历 ${lunar.year}年${if (isLeap) "闰" else ""}${actualMonth}月${lunar.day}日")
+            Triple(lunar.year, if (isLeap) -actualMonth else actualMonth, lunar.day)
+        } catch (e: Exception) {
+            android.util.Log.e("EventDialog", "获取当前农历日期失败", e)
+            todaySolar
         }
-        cal
     }
 
-    // 初始化日期选择器的值，特别处理闰月
-    val (initYear, initMonth, initDay) = remember {
-        if (parsedEventDate != null) {
-            val year = parsedEventDate.year ?: initialCalendar.get(Calendar.YEAR)
-            val month = if (parsedEventDate.isLeapMonth) -parsedEventDate.month else parsedEventDate.month
-            val day = parsedEventDate.day
-            Triple(year, month, day)
-        } else {
+    // 计算编辑模式下各Tab的初始值
+    val (initSolarYear, initSolarMonth, initSolarDay) = remember(parsedEventDate) {
+        if (isEditMode && parsedEventDate != null && parsedEventDate.type == DateParser.DateType.SOLAR) {
             Triple(
-                initialCalendar.get(Calendar.YEAR),
-                initialCalendar.get(Calendar.MONTH) + 1,
-                initialCalendar.get(Calendar.DAY_OF_MONTH)
+                parsedEventDate.year ?: todaySolar.first,
+                parsedEventDate.month,
+                parsedEventDate.day
             )
+        } else {
+            todaySolar
+        }
+    }
+    
+    val (initLunarYear, initLunarMonth, initLunarDay) = remember(parsedEventDate) {
+        if (isEditMode && parsedEventDate != null && parsedEventDate.type == DateParser.DateType.LUNAR) {
+            Triple(
+                parsedEventDate.year ?: todayLunar.first,
+                if (parsedEventDate.isLeapMonth) -parsedEventDate.month else parsedEventDate.month,
+                parsedEventDate.day
+            )
+        } else {
+            todayLunar
+        }
+    }
+    
+    val (initMonthDayMonth, initMonthDayDay) = remember(parsedEventDate) {
+        if (isEditMode && parsedEventDate != null && parsedEventDate.type == DateParser.DateType.MONTH_DAY) {
+            Pair(parsedEventDate.month, parsedEventDate.day)
+        } else {
+            Pair(todaySolar.second, todaySolar.third)
+        }
+    }
+    
+    val (initLunarMonthDayMonth, initLunarMonthDayDay) = remember(parsedEventDate) {
+        if (isEditMode && parsedEventDate != null && parsedEventDate.type == DateParser.DateType.LUNAR_MONTH_DAY) {
+            Pair(
+                if (parsedEventDate.isLeapMonth) -parsedEventDate.month else parsedEventDate.month,
+                parsedEventDate.day
+            )
+        } else {
+            Pair(todayLunar.second, todayLunar.third)
         }
     }
 
-    var selectedYear by remember { mutableStateOf(initYear) }
-    var selectedMonth by remember { mutableStateOf(initMonth) }
-    var selectedDay by remember { mutableStateOf(initDay) }
+    // 每个Tab独立存储日期状态
+    // Tab 0: 公历
+    var solarYear by remember { mutableStateOf(initSolarYear) }
+    var solarMonth by remember { mutableStateOf(initSolarMonth) }
+    var solarDay by remember { mutableStateOf(initSolarDay) }
+    
+    // Tab 1: 农历
+    var lunarYear by remember { mutableStateOf(initLunarYear) }
+    var lunarMonth by remember { mutableStateOf(initLunarMonth) }
+    var lunarDay by remember { mutableStateOf(initLunarDay) }
+    
+    // Tab 2: 忽略年份(公历)
+    var monthDayMonth by remember { mutableStateOf(initMonthDayMonth) }
+    var monthDayDay by remember { mutableStateOf(initMonthDayDay) }
+    
+    // Tab 3: 忽略年份(农历)
+    var lunarMonthDayMonth by remember { mutableStateOf(initLunarMonthDayMonth) }
+    var lunarMonthDayDay by remember { mutableStateOf(initLunarMonthDayDay) }
+    
+    // 记录用户是否在当前Tab手动选择过日期
+    var userHasSelectedDate by remember { mutableStateOf(false) }
+    
+    // 编辑模式日志
+    LaunchedEffect(parsedEventDate) {
+        if (isEditMode && parsedEventDate != null) {
+            android.util.Log.d("EventDialog", "编辑模式初始化: 类型=${parsedEventDate.type}, month=${parsedEventDate.month}, isLeap=${parsedEventDate.isLeapMonth}")
+        }
+    }
+    
+    // 获取当前Tab对应的日期值
+    val (selectedYear, selectedMonth, selectedDay) = when (selectedTab) {
+        0 -> Triple(solarYear, solarMonth, solarDay)
+        1 -> Triple(lunarYear, lunarMonth, lunarDay)
+        2 -> Triple(todaySolar.first, monthDayMonth, monthDayDay) // 忽略年份(公历)模式，使用公历年份计算天数
+        3 -> Triple(todayLunar.first, lunarMonthDayMonth, lunarMonthDayDay) // 忽略年份(农历)模式，使用农历年份计算天数和闰月
+        else -> Triple(todaySolar.first, todaySolar.second, todaySolar.third)
+    }
 
     // 手势返回处理
     BackHandler {
@@ -214,17 +289,17 @@ fun EventDialog(
                             modifier = Modifier.padding(bottom = 10.dp)
                         )
 
-                        // 分段选择器
+                        // 分段选择器 - 4个选项（简化文案）
                         SegmentedSelector(
-                            options = listOf("公历", "农历", "忽略年份"),
+                            options = listOf("公历", "农历", "忽略年（公）", "忽略年（农）"),
                             selectedIndex = selectedTab,
                             onSelectionChanged = { index ->
-                                // 切换时处理年份
-                                if (selectedTab == 2 && index != 2) {
-                                    val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-                                    selectedYear = currentYear
-                                }
+                                val previousTab = selectedTab
                                 selectedTab = index
+                                // 切换Tab时重置用户选择标记
+                                userHasSelectedDate = false
+                                android.util.Log.d("EventDialog", "切换Tab: $previousTab -> $index, 不进行日期转换")
+                                // 不再进行日期转换，每个Tab保持独立的日期状态
                             }
                         )
                     }
@@ -246,9 +321,28 @@ fun EventDialog(
                         selectedMonth = selectedMonth,
                         selectedDay = selectedDay,
                         onDateChanged = { year: Int, month: Int, day: Int ->
-                            selectedYear = year
-                            selectedMonth = month
-                            selectedDay = day
+                            userHasSelectedDate = true
+                            // 根据当前Tab更新对应的日期状态
+                            when (selectedTab) {
+                                0 -> {
+                                    solarYear = year
+                                    solarMonth = month
+                                    solarDay = day
+                                }
+                                1 -> {
+                                    lunarYear = year
+                                    lunarMonth = month
+                                    lunarDay = day
+                                }
+                                2 -> {
+                                    monthDayMonth = month
+                                    monthDayDay = day
+                                }
+                                3 -> {
+                                    lunarMonthDayMonth = month
+                                    lunarMonthDayDay = day
+                                }
+                            }
                         }
                     )
 
@@ -303,19 +397,36 @@ fun EventDialog(
 
                                 // 确保使用最新的eventDate格式
                                 val finalEventDate = when (selectedTab) {
+                                    0 -> {
+                                        // 公历格式
+                                        String.format("%04d-%02d-%02d", solarYear, solarMonth, solarDay)
+                                    }
                                     1 -> {
                                         // 农历格式，检查是否为闰月
-                                        if (selectedMonth < 0) {
+                                        if (lunarMonth < 0) {
                                             // 负数表示闰月
-                                            val actualMonth = -selectedMonth
-                                            "lunar:${selectedYear}-L${String.format("%02d", actualMonth)}-${String.format("%02d", selectedDay)}" // 闰月格式
+                                            val actualMonth = -lunarMonth
+                                            "lunar:${lunarYear}-L${String.format("%02d", actualMonth)}-${String.format("%02d", lunarDay)}"
                                         } else {
                                             // 正数表示普通月份
-                                            "lunar:${String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)}" // 普通农历格式
+                                            "lunar:${String.format("%04d-%02d-%02d", lunarYear, lunarMonth, lunarDay)}"
                                         }
                                     }
-                                    2 -> String.format("%02d-%02d", selectedMonth, selectedDay) // 忽略年份格式
-                                    else -> String.format("%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay) // 公历格式
+                                    2 -> {
+                                        // 忽略年份(公历)格式
+                                        String.format("%02d-%02d", monthDayMonth, monthDayDay)
+                                    }
+                                    3 -> {
+                                        // 忽略年份(农历)格式
+                                        if (lunarMonthDayMonth < 0) {
+                                            // 负数表示闰月
+                                            val actualMonth = -lunarMonthDayMonth
+                                            "lunar:L${String.format("%02d", actualMonth)}-${String.format("%02d", lunarMonthDayDay)}"
+                                        } else {
+                                            "lunar:${String.format("%02d-%02d", lunarMonthDayMonth, lunarMonthDayDay)}"
+                                        }
+                                    }
+                                    else -> String.format("%04d-%02d-%02d", solarYear, solarMonth, solarDay)
                                 }
 
                                 // 检查重复事件（编辑时排除自己）
@@ -369,11 +480,11 @@ fun SegmentedSelector(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .height(40.dp)
+            .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(0.dp)
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         options.forEachIndexed { index, option ->
             val isSelected = index == selectedIndex
@@ -382,7 +493,7 @@ fun SegmentedSelector(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(
                         if (isSelected) MaterialTheme.colorScheme.surface
                         else Color.Transparent
@@ -391,7 +502,7 @@ fun SegmentedSelector(
                         if (isSelected) Modifier.border(
                             width = 0.5.dp,
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(6.dp)
                         ) else Modifier
                     )
                     .clickable { onSelectionChanged(index) },
@@ -399,10 +510,11 @@ fun SegmentedSelector(
             ) {
                 Text(
                     text = option,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
                     color = if (isSelected) MaterialTheme.colorScheme.onSurface
-                           else MaterialTheme.colorScheme.onSurfaceVariant
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
             }
         }
