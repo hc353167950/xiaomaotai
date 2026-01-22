@@ -21,16 +21,25 @@ enum class EventStatus(val value: Int) {
 
 @Serializable(with = EventTypeSerializer::class)
 enum class EventType(val value: Int) {
-    SOLAR(0),      // 公历事件 (yyyy-MM-dd)
-    LUNAR(1),      // 农历事件 (lunar:yyyy-MM-dd)
-    MONTH_DAY(2);  // 忽略年份事件 (MM-dd)
+    SOLAR(0),           // 公历事件 (yyyy-MM-dd)
+    LUNAR(1),           // 农历事件 (lunar:yyyy-MM-dd)
+    MONTH_DAY(2),       // 忽略年份事件-公历 (MM-dd)
+    LUNAR_MONTH_DAY(3); // 忽略年份事件-农历 (lunar:MM-dd 或 lunar:LMM-dd)
 
     companion object {
         fun fromInt(value: Int) = entries.firstOrNull { it.value == value } ?: SOLAR
         
         fun fromDateString(dateString: String): EventType {
             return when {
-                dateString.startsWith("lunar:") -> LUNAR
+                dateString.startsWith("lunar:") -> {
+                    val lunarPart = dateString.removePrefix("lunar:")
+                    // 检查是否为忽略年份的农历格式
+                    if (lunarPart.matches(Regex("L?\\d{2}-\\d{2}"))) {
+                        LUNAR_MONTH_DAY
+                    } else {
+                        LUNAR
+                    }
+                }
                 dateString.matches(Regex("\\d{2}-\\d{2}")) -> MONTH_DAY
                 else -> SOLAR
             }

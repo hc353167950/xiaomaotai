@@ -86,6 +86,12 @@ fun EventItem(
                 val dayName = LunarCalendarHelper.getLunarDayName(parsedDate.day)
                 "$monthName$dayName ${parsedDate.year}"
             }
+            parsedDate.type == DateParser.DateType.LUNAR_MONTH_DAY -> {
+                // 忽略年份的农历事件显示格式：腊月初一 或 闰六月初一
+                val monthName = LunarCalendarHelper.getLunarMonthName(parsedDate.month, parsedDate.isLeapMonth)
+                val dayName = LunarCalendarHelper.getLunarDayName(parsedDate.day)
+                "$monthName$dayName"
+            }
             parsedDate.type == DateParser.DateType.MONTH_DAY -> {
                 // 忽略年份事件显示格式：08-10
                 event.eventDate
@@ -358,6 +364,9 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
         val daysBetween = when (parsedDate.type) {
             DateParser.DateType.LUNAR -> {
                 DateParser.calculateLunarDaysUntil(parsedDate, today)
+            }
+            DateParser.DateType.LUNAR_MONTH_DAY -> {
+                DateParser.calculateLunarMonthDayDaysUntil(parsedDate, today)
             }
             DateParser.DateType.MONTH_DAY, DateParser.DateType.SOLAR -> {
                 DateParser.calculateSolarDaysUntil(parsedDate, today)

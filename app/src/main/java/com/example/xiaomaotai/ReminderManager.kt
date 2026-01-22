@@ -399,6 +399,26 @@ class ReminderManager(private val context: Context) {
                     }
                 }
 
+                DateParser.DateType.LUNAR_MONTH_DAY -> {
+                    // 忽略年份的农历格式：使用农历天数计算
+                    Log.d("ReminderManager", "🔍 忽略年份农历提醒计算: ${parsedDate.month}月${parsedDate.day}日(闰月:${parsedDate.isLeapMonth}), 当前日期: $currentDate")
+
+                    val daysUntilEvent = DateParser.calculateLunarMonthDayDaysUntil(parsedDate, currentDate)
+
+                    Log.d("ReminderManager", "🔍 忽略年份农历倒计时结果: ${daysUntilEvent}天")
+
+                    // 根据倒计时天数计算目标日期
+                    if (daysUntilEvent == 0L) {
+                        Log.d("ReminderManager", "✅ 忽略年份农历事件就是今天")
+                        today.time
+                    } else {
+                        val targetCal = Calendar.getInstance()
+                        targetCal.add(Calendar.DAY_OF_YEAR, daysUntilEvent.toInt())
+                        Log.d("ReminderManager", "✅ 忽略年份农历事件在${daysUntilEvent}天后: ${targetCal.time}")
+                        targetCal.time
+                    }
+                }
+
                 DateParser.DateType.MONTH_DAY -> {
                     // 忽略年份格式：使用统一的公历天数计算
                     val daysUntilEvent = DateParser.calculateSolarDaysUntil(parsedDate, currentDate)
