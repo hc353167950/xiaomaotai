@@ -249,7 +249,9 @@ fun WheelPicker(
     var previousItems by remember { mutableStateOf(items) }
     
     // 实时计算当前滑动位置对应的索引（用于UI高亮显示）
-    val currentScrollIndex by remember {
+    // 使用 items.size 作为依赖，确保 items 改变时重新计算
+    val itemsSize = items.size
+    val currentScrollIndex by remember(itemsSize) {
         derivedStateOf {
             val firstVisibleIndex = listState.firstVisibleItemIndex
             val firstVisibleOffset = listState.firstVisibleItemScrollOffset
@@ -258,7 +260,7 @@ fun WheelPicker(
             val shouldSelectNext = firstVisibleOffset > itemHeightPx / 2
             val centerVisibleIndex = if (shouldSelectNext) firstVisibleIndex + 2 else firstVisibleIndex + 1
             // 减去填充项得到实际索引
-            (centerVisibleIndex - 1).coerceIn(0, items.size - 1)
+            (centerVisibleIndex - 1).coerceIn(0, itemsSize - 1)
         }
     }
 
