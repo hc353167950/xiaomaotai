@@ -186,10 +186,10 @@ fun EventDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .wrapContentHeight(),
-                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
                 color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
-                shadowElevation = 8.dp
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp
             ) {
                 Column(
                     modifier = Modifier
@@ -216,9 +216,10 @@ fun EventDialog(
                     // 标题
                     Text(
                         text = if (event == null) "添加纪念日" else "编辑纪念日",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
+                        letterSpacing = 0.3.sp,
                         modifier = Modifier.padding(bottom = 20.dp)
                     )
 
@@ -249,13 +250,14 @@ fun EventDialog(
                                 )
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                errorBorderColor = MaterialTheme.colorScheme.error
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                errorBorderColor = MaterialTheme.colorScheme.error,
+                                errorContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                             ),
                             isError = errorMessage.isNotEmpty() && (errorMessage.contains("名称") || errorMessage.contains("字数")),
                             singleLine = true
@@ -480,10 +482,10 @@ fun SegmentedSelector(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(2.dp),
+            .height(36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         options.forEachIndexed { index, option ->
@@ -493,25 +495,18 @@ fun SegmentedSelector(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         if (isSelected) MaterialTheme.colorScheme.surface
                         else Color.Transparent
-                    )
-                    .then(
-                        if (isSelected) Modifier.border(
-                            width = 0.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(6.dp)
-                        ) else Modifier
                     )
                     .clickable { onSelectionChanged(index) },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = option,
-                    fontSize = 13.sp,
-                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                     color = if (isSelected) MaterialTheme.colorScheme.onSurface
                            else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1

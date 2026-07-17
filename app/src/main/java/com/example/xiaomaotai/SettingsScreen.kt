@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -33,7 +36,11 @@ import androidx.lifecycle.LifecycleOwner
 // ReminderForegroundService 会在 SettingsScreen 的常驻通知开关中使用
 
 @Composable
-fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
+fun SettingsScreen(
+    onNavigateBack: () -> Unit = {},
+    uiStyleId: String = "soft_diary",
+    onUiStyleChange: (String) -> Unit = {}
+) {
     val context = LocalContext.current
     val permissionManager = remember { PermissionManager(context) }
     var permissionSummary by remember { mutableStateOf(PermissionSummary(false, false, false)) }
@@ -73,41 +80,120 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         }
     }
     
-    Box(
-        modifier = Modifier.fillMaxSize()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
     ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 0.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "返回",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    text = "设置",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+        }
+
         // 主要内容区域 - 可滚动
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 16.dp)
-                .padding(bottom = 120.dp), // 为底部版本信息和导航栏预留足够空间
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-        // 简约顶部导航栏
-        Row(
+        // 界面风格：一行介绍 + 两个选项
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "返回"
-                )
-            }
-            Text(
-                text = "设置",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
             )
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "界面风格",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "彩色渐变卡或玻璃白卡，点选即切换",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    val styles = listOf(
+                        "soft_diary" to "彩色渐变",
+                        "glass_countdown" to "玻璃倒计时"
+                    )
+                    styles.forEach { (id, label) ->
+                        val selected = uiStyleId == id
+                        Surface(
+                            onClick = { onUiStyleChange(id) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selected)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant,
+                            border = if (selected)
+                                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                            else
+                                BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                        ) {
+                            Text(
+                                text = label,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                fontSize = 14.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (selected)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
         }
-        
+
         // 通知权限设置项
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -159,7 +245,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 精确闹钟权限设置 - 始终显示，可点击跳转设置
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -210,9 +297,9 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                             text = if (permissionSummary.hasExactAlarm) "已开启" else "未开启，点击跳转设置",
                             fontSize = 13.sp,
                             color = if (permissionSummary.hasExactAlarm)
-                                Color(0xFF4CAF50)
+                                MaterialTheme.colorScheme.primary
                             else
-                                Color(0xFFF44336)
+                                MaterialTheme.colorScheme.error
                         )
                     }
 
@@ -369,7 +456,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 电池优化白名单设置（允许后台运行）
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -418,9 +506,9 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
                                 "未允许，点击设置关闭电池优化",
                             fontSize = 13.sp,
                             color = if (permissionSummary.isIgnoringBatteryOptimization)
-                                Color(0xFF4CAF50)
+                                MaterialTheme.colorScheme.primary
                             else
-                                Color(0xFFF44336)
+                                MaterialTheme.colorScheme.error
                         )
                     }
 
@@ -453,7 +541,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 隐藏最近任务设置
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -510,7 +599,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 常驻通知设置
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -579,7 +669,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 无障碍保活通知设置（系统级保活，与无障碍服务状态绑定）
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -653,7 +744,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 自动排序过期事件设置
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -706,7 +798,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 提醒时间说明 - 重新设计为提示区域样式
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -771,7 +864,8 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
         // 通知测试功能
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -829,7 +923,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit = {}) {
             )
         }
         } // 结束主要内容区域的Column
-    } // 结束Box
+    } // 结束外层 Column
 }
 
 /**

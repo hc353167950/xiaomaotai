@@ -1,0 +1,69 @@
+name: Auto Tag on Push
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/keep_alive_heartbeat.json'
+      - '.github/workflows/keep_alive.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    # keep-alive 机器人提交不打 tag
+    if: ${{ !contains(github.event.head_commit.message, 'keep_alive') && !contains(github.event.head_commit.message, 'heartbeat') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # 当前 commit 已有 tag 则跳过
+          if git describe --exact-match --tags HEAD >/dev/null 2>&1; then
+            echo "HEAD already tagged: $(git describe --exact-match --tags HEAD)"
+            exit 0
+          fi
+
+          # 从 app/build.gradle.kts 读取 versionName
+          VERSION_NAME=$(grep -E 'versionName\s*=' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "${VERSION_NAME}" ]; then
+            VERSION_NAME="0.0.0"
+          fi
+
+          DATE_TAG=$(TZ=Asia/Shanghai date +%Y%m%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+
+          # 同一天同版本多次推送时追加序号，避免冲突
+          BASE="v${VERSION_NAME}-${DATE_TAG}"
+          TAG="${BASE}-${SHORT_SHA}"
+
+          # 若 base 下已有同 sha 则跳过
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag already exists: ${TAG}"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "${TAG}" -m "Auto release ${TAG}
+
+          versionName: ${VERSION_NAME}
+          commit: ${GITHUB_SHA}
+          actor: ${GITHUB_ACTOR}
+          "
+
+          git push origin "refs/tags/${TAG}"
+          echo "Created tag: ${TAG}"
