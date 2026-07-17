@@ -547,8 +547,8 @@ fun SettingsScreen(
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            val dataManager = remember { DataManager(context) }
-            var hideRecentTask by remember { mutableStateOf(dataManager.isHideRecentTaskEnabled()) }
+            val settings = remember { XiaoMaoTaiApp.settings(context) }
+            var hideRecentTask by remember { mutableStateOf(settings.isHideRecentTaskEnabled()) }
 
             Column(
                 modifier = Modifier.padding(12.dp)
@@ -558,7 +558,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .clickable {
                             hideRecentTask = !hideRecentTask
-                            dataManager.setHideRecentTask(hideRecentTask)
+                            settings.setHideRecentTask(hideRecentTask)
 
                             // 立即应用设置
                             applyHideRecentTaskSetting(context, hideRecentTask)
@@ -586,7 +586,7 @@ fun SettingsScreen(
                         checked = hideRecentTask,
                         onCheckedChange = {
                             hideRecentTask = it
-                            dataManager.setHideRecentTask(it)
+                            settings.setHideRecentTask(it)
 
                             // 立即应用设置
                             applyHideRecentTaskSetting(context, it)
@@ -605,8 +605,8 @@ fun SettingsScreen(
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            val dataManager = remember { DataManager(context) }
-            var persistentNotification by remember { mutableStateOf(dataManager.isPersistentNotificationEnabled()) }
+            val settings = remember { XiaoMaoTaiApp.settings(context) }
+            var persistentNotification by remember { mutableStateOf(settings.isPersistentNotificationEnabled()) }
 
             Column(
                 modifier = Modifier.padding(12.dp)
@@ -616,7 +616,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .clickable {
                             persistentNotification = !persistentNotification
-                            dataManager.setPersistentNotification(persistentNotification)
+                            settings.setPersistentNotification(persistentNotification)
 
                             // 立即启动或停止服务
                             // 方案B：PersistentNotificationService已包含智能保活功能
@@ -650,7 +650,7 @@ fun SettingsScreen(
                         checked = persistentNotification,
                         onCheckedChange = {
                             persistentNotification = it
-                            dataManager.setPersistentNotification(it)
+                            settings.setPersistentNotification(it)
 
                             // 立即启动或停止服务
                             // 方案B：PersistentNotificationService已包含智能保活功能
@@ -750,8 +750,8 @@ fun SettingsScreen(
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            val dataManager = remember { DataManager(context) }
-            var autoSortExpired by remember { mutableStateOf(dataManager.isAutoSortExpiredEventsEnabled()) }
+            val settings = remember { XiaoMaoTaiApp.settings(context) }
+            var autoSortExpired by remember { mutableStateOf(settings.isAutoSortExpiredEventsEnabled()) }
 
             Column(
                 modifier = Modifier.padding(12.dp)
@@ -761,7 +761,7 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .clickable {
                             autoSortExpired = !autoSortExpired
-                            dataManager.setAutoSortExpiredEvents(autoSortExpired)
+                            settings.setAutoSortExpiredEvents(autoSortExpired)
                         },
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -786,7 +786,7 @@ fun SettingsScreen(
                         checked = autoSortExpired,
                         onCheckedChange = {
                             autoSortExpired = it
-                            dataManager.setAutoSortExpiredEvents(it)
+                            settings.setAutoSortExpiredEvents(it)
                         }
                     )
                 }
@@ -952,8 +952,7 @@ private fun applyHideRecentTaskSetting(context: Context, enable: Boolean) {
  */
 private fun safeStartSettingsActivity(context: Context, intent: Intent) {
     try {
-        val dataManager = DataManager(context)
-        val isHideEnabled = dataManager.isHideRecentTaskEnabled()
+        val isHideEnabled = XiaoMaoTaiApp.settings(context).isHideRecentTaskEnabled()
 
         // 如果开启了隐藏最近任务，设置标记避免 onStop 中回收
         if (isHideEnabled) {

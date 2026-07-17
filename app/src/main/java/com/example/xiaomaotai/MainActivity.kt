@@ -132,30 +132,32 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
-            val dataManager = remember { DataManager(context) }
+            val app = context.applicationContext as XiaoMaoTaiApp
             var uiStyleId by remember {
                 mutableStateOf(
-                    dataManager.getUiStyleId().ifBlank { "soft_diary" }
+                    app.settings.getUiStyleId().ifBlank { "soft_diary" }
                 )
             }
             val uiStyle = com.example.xiaomaotai.ui.theme.UiStyle.fromId(uiStyleId)
 
             XiaoMaoTaiTheme(uiStyle = uiStyle) {
                 LaunchedEffect(Unit) {
-                    dataManager.initializeLocalData()
+                    app.events.initialize()
 
                     // 检查并应用隐藏最近任务设置
-                    handleHideRecentTask(dataManager)
+                    handleHideRecentTask(app.settings)
 
                     // 检查并启动常驻通知服务
-                    handlePersistentNotification(dataManager)
+                    handlePersistentNotification(app.settings)
                 }
 
                 MainApp(
-                    dataManager = dataManager,
+                    events = app.events,
+                    account = app.account,
+                    settings = app.settings,
                     uiStyleId = uiStyleId,
                     onUiStyleChange = { id ->
-                        dataManager.setUiStyleId(id)
+                        app.settings.setUiStyleId(id)
                         uiStyleId = id
                     }
                 )
@@ -165,25 +167,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        val dataManager = DataManager(this)
-
         // 如果开启了隐藏最近任务，在APP进入后台时从最近任务列表中移除（不杀掉APP）
         // 但如果正在跳转到系统设置页，则跳过此操作，避免APP被回收
-        if (dataManager.isHideRecentTaskEnabled() && !isNavigatingToSettings) {
+        if (XiaoMaoTaiApp.settings(this).isHideRecentTaskEnabled() && !isNavigatingToSettings) {
             moveTaskToBack(true)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        val dataManager = DataManager(this)
-
         // 从设置页返回，重置标记
         isNavigatingToSettings = false
 
         // 每次恢复时检查设置
-        handleHideRecentTask(dataManager)
-        handlePersistentNotification(dataManager)
+        val settings = XiaoMaoTaiApp.settings(this)
+        handleHideRecentTask(settings)
+        handlePersistentNotification(settings)
     }
 
     override fun onDestroy() {
@@ -197,10 +196,10 @@ class MainActivity : ComponentActivity() {
      * 处理隐藏最近任务设置
      * 动态设置Activity的excludeFromRecents属性
      */
-    private fun handleHideRecentTask(dataManager: DataManager) {
+    private fun handleHideRecentTask(settings: AppSettings) {
         try {
             val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            if (dataManager.isHideRecentTaskEnabled()) {
+            if (settings.isHideRecentTaskEnabled()) {
                 // 开启隐藏：设置excludeFromRecents标志
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                     // 通过反射设置excludeFromRecents
@@ -226,8 +225,8 @@ class MainActivity : ComponentActivity() {
     /**
      * 处理常驻通知设置
      */
-    private fun handlePersistentNotification(dataManager: DataManager) {
-        if (dataManager.isPersistentNotificationEnabled()) {
+    private fun handlePersistentNotification(settings: AppSettings) {
+        if (settings.isPersistentNotificationEnabled()) {
             // 启动常驻通知服务
             PersistentNotificationService.startService(this)
         } else {
@@ -303,7 +302,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainApp(
-    dataManager: DataManager,
+    events: EventStore,
+    account: Account,
+    settings: AppSettings,
     uiStyleId: String = "soft_diary",
     onUiStyleChange: (String) -> Unit = {}
 ) {
@@ -352,11 +353,10 @@ fun MainApp(
     }
 
     LaunchedEffect(Unit) {
-        dataManager.initializeLocalData()
-        currentUser = dataManager.getCurrentUser()
-        
+        currentUser = account.getCurrentUser()
+
         // 检查是否需要显示通知权限提示
-        if (!hasNotificationPermission() && dataManager.shouldShowNotificationPrompt()) {
+        if (!hasNotificationPermission() && settings.shouldShowNotificationPrompt()) {
             showNotificationPrompt = true
         }
     }
@@ -420,8 +420,9 @@ fun MainApp(
         // 导航逻辑
         when (currentScreen) {
             "home" -> HomeScreen(
-                dataManager = dataManager,
-                loginState = dataManager.isLoggedIn(),
+                eventStore = events,
+                settings = settings,
+                loginState = account.isLoggedIn(),
                 modifier = Modifier.padding(paddingValues),
                 onNavigateToSort = { events ->
                     sortScreenEvents = events // 保存事件列表
@@ -430,13 +431,13 @@ fun MainApp(
                 refreshKey = refreshKey
             )
             "profile" -> ProfileScreen(
-                dataManager = dataManager,
+                account = account,
                 currentUser = currentUser,
                 onLogin = { user ->
                     currentUser = user
                 },
                 onLogout = {
-                    dataManager.logout()
+                    account.logout()
                     currentUser = null
                 },
                 onNavigateToForgotPassword = {
@@ -464,7 +465,7 @@ fun MainApp(
                 onUiStyleChange = onUiStyleChange
             )
             "forgot_password" -> ForgotPasswordScreen(
-                dataManager = dataManager,
+                account = account,
                 onBack = {
                     currentScreen = forgotPasswordSource
                 },
@@ -475,7 +476,7 @@ fun MainApp(
             "login" -> {
                 // 独立的登录页面路由 - 使用ProfileScreen内部的LoginScreen
                 ProfileScreen(
-                    dataManager = dataManager,
+                    account = account,
                     currentUser = null,
                     onLogin = { user ->
                         currentUser = user
@@ -501,7 +502,7 @@ fun MainApp(
             "register" -> {
                 // 独立的注册页面路由 - 使用ProfileScreen内部的RegisterScreen
                 ProfileScreen(
-                    dataManager = dataManager,
+                    account = account,
                     currentUser = null,
                     onLogin = { user ->
                         currentUser = user
@@ -523,7 +524,8 @@ fun MainApp(
             }
             "sort" -> {
                 SortScreen(
-                    dataManager = dataManager,
+                    eventStore = events,
+                    settings = settings,
                     initialEvents = sortScreenEvents, // 传递首页的事件列表
                     onDone = {
                         refreshKey += 1
@@ -653,7 +655,8 @@ fun ExactAlarmPermissionDialog(
 
 @Composable
 fun HomeScreen(
-    dataManager: DataManager,
+    eventStore: EventStore,
+    settings: AppSettings,
     loginState: Boolean,
     modifier: Modifier = Modifier,
     onNavigateToSort: (List<Event>) -> Unit, // 修改为传递事件列表
@@ -683,7 +686,7 @@ fun HomeScreen(
     // 提取排序逻辑为独立函数，确保在所有地方都应用相同的排序规则
     // 注意：纪念日都是循环的，cachedDays永远>=0，表示距离下一次的天数
     fun applySortLogic(eventsList: List<Event>): List<Event> {
-        return if (dataManager.isAutoSortExpiredEventsEnabled()) {
+        return if (settings.isAutoSortExpiredEventsEnabled()) {
             // 开启了自动排序：按距离下次纪念日的天数升序排序（天数越少越靠前）
             // 天数相同时按sortOrder降序（保持用户手动排序）
             val sorted = eventsList.sortedWith(
@@ -835,11 +838,11 @@ fun HomeScreen(
 
     // 数据加载 - 智能排序：根据设置决定是否将过期事件移到末尾（仅在内存中排序，不修改数据库）
     // 监听 internalRefreshKey 确保从后台恢复时也能刷新数据
-    LaunchedEffect(loginState, dataManager, refreshKey, internalRefreshKey) {
+    LaunchedEffect(loginState, eventStore, refreshKey, internalRefreshKey) {
         scope.launch {
             isLoading = true
             try {
-                val newEvents = dataManager.getEvents()
+                val newEvents = eventStore.currentEvents()
                 // 先计算并缓存每个事件的天数 - 使用copy避免apply的引用问题
                 val eventsWithCachedDays = newEvents.map { event ->
                     val days = com.example.xiaomaotai.ui.components.calculateDaysAfter(event.eventDate).second
@@ -1045,8 +1048,8 @@ fun HomeScreen(
                                                     event.copy(sortOrder = index)
                                                 }
 
-                                            // 调用 DataManager 的批量更新方法
-                                            dataManager.updateEventOrder(updatedEvents)
+                                            // 调用 EventStore 的批量更新方法
+                                            eventStore.updateEventOrder(updatedEvents)
 
                                             // 保存本地排序状态，并应用排序逻辑
                                             sortOrder = updatedEvents.map { it.id }
@@ -1159,7 +1162,7 @@ fun HomeScreen(
                                         scope.launch {
                                             isLoading = true
                                             try {
-                                                dataManager.deleteEvent(event.id)
+                                                eventStore.deleteEvent(event.id)
                                                 val updatedEvents = events.filter { it.id != event.id }
                                                 events = applySortLogic(updatedEvents)
                                             } catch (e: Exception) {
@@ -1213,13 +1216,13 @@ fun HomeScreen(
                                 )
 
                                 if (currentEvent != null) {
-                                    dataManager.updateEvent(eventToSave)
+                                    eventStore.updateEvent(eventToSave)
                                 } else {
-                                    dataManager.addEvent(eventToSave)
+                                    eventStore.addEvent(eventToSave)
                                 }
 
                                 // 获取最新数据，重新计算天数，并应用排序逻辑
-                                val newEvents = dataManager.getEvents()
+                                val newEvents = eventStore.currentEvents()
                                 val eventsWithCachedDays = newEvents.map { event ->
                                     val days = com.example.xiaomaotai.ui.components.calculateDaysAfter(event.eventDate).second
                                     android.util.Log.d("HomeScreen", "保存后重新计算天数: ${event.eventName} (${event.eventDate}) = $days 天")
@@ -1233,7 +1236,7 @@ fun HomeScreen(
                             }
                         }
                     },
-                    dataManager = dataManager
+                    events = eventStore
                 )
             }
 
@@ -1262,7 +1265,7 @@ fun HomeScreen(
                                     isLoading = true
                                     try {
                                         eventsToDelete.forEach { event ->
-                                            dataManager.deleteEvent(event.id)
+                                            eventStore.deleteEvent(event.id)
                                         }
                                         events = emptyList()
                                     } catch (e: Exception) {

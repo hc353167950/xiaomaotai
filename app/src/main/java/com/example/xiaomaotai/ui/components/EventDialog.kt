@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.xiaomaotai.DataManager
+import com.example.xiaomaotai.EventStore
 import com.example.xiaomaotai.DateParser
 import com.example.xiaomaotai.Event
 import com.example.xiaomaotai.ValidationUtils
@@ -28,7 +28,7 @@ fun EventDialog(
     event: Event?,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
-    dataManager: DataManager
+    events: EventStore
 ) {
     var eventName by remember { mutableStateOf(event?.eventName ?: "") }
     var errorMessage by remember { mutableStateOf("") }
@@ -433,7 +433,7 @@ fun EventDialog(
 
                                 // 检查重复事件（编辑时排除自己）
                                 scope.launch {
-                                    val existingEvents = dataManager.getEvents()
+                                    val existingEvents = events.currentEvents()
                                     val isDuplicate = existingEvents.any { existingEvent ->
                                         existingEvent.eventName == eventName &&
                                         existingEvent.eventDate == finalEventDate &&

@@ -29,7 +29,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
-import com.example.xiaomaotai.DataManager
+import com.example.xiaomaotai.Account
 import com.example.xiaomaotai.User
 import com.example.xiaomaotai.ValidationUtils
 import com.example.xiaomaotai.ui.theme.LocalUiStyle
@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileScreen(
-    dataManager: DataManager,
+    account: Account,
     currentUser: User?,
     onLogin: (User) -> Unit,
     onLogout: () -> Unit,
@@ -90,7 +90,7 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 RegisterScreen(
-                    dataManager = dataManager,
+                    account = account,
                     onRegisterSuccess = { user ->
                         showRegisterScreen = false
                         onLogin(user)
@@ -132,7 +132,7 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 LoginScreen(
-                    dataManager = dataManager,
+                    account = account,
                     onLoginSuccess = { user ->
                         showLoginScreen = false
                         onLogin(user)
@@ -703,13 +703,13 @@ fun ProfileMenuItem(
 
 @Composable
 fun LoginScreen(
-    dataManager: DataManager,
+    account: Account,
     onLoginSuccess: (User) -> Unit,
     onSwitchToRegister: () -> Unit,
     onNavigateToForgotPassword: () -> Unit
 ) {
     // 读取上次登录的用户名
-    var username by remember { mutableStateOf(dataManager.getLastUsername()) }
+    var username by remember { mutableStateOf(account.getLastUsername()) }
     var password by remember { mutableStateOf("") }
     var usernameError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
@@ -802,7 +802,7 @@ fun LoginScreen(
                         isLoading = true
                         serverErrorMessage = ""
                         try {
-                            val result = dataManager.loginUser(username, password)
+                            val result = account.login(username, password)
                             if (result.isSuccess) {
                                 val user = result.getOrNull()!!
                                 onLoginSuccess(user)
@@ -870,7 +870,7 @@ fun LoginScreen(
 
 @Composable
 fun RegisterScreen(
-    dataManager: DataManager,
+    account: Account,
     onRegisterSuccess: (User) -> Unit,
     onSwitchToLogin: () -> Unit
 ) {
@@ -1025,7 +1025,7 @@ fun RegisterScreen(
                     isLoading = true
                     serverErrorMessage = ""
                     try {
-                        val result = dataManager.registerUser(username, nickname, email, password)
+                        val result = account.register(username, nickname, email, password)
                         if (result.isSuccess) {
                             val user = result.getOrNull()!!
                             onRegisterSuccess(user)

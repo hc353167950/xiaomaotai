@@ -61,6 +61,10 @@ android {
     buildFeatures {
         compose = true
     }
+    // JVM 单元测试中 android.util.Log 等桩方法返回默认值，避免 "not mocked" 崩溃
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
     }
