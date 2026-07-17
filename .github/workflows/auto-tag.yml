@@ -101,6 +101,20 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # gradle.properties 在 .gitignore 中（历史上存放签名密码），CI 检出后缺失，
+      # 而 AndroidX 项目构建必须启用 android.useAndroidX，这里生成一份不含密码的配置
+      - name: Generate gradle.properties
+        run: |
+          set -euo pipefail
+          if [ ! -f gradle.properties ]; then
+            cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8 -XX:+UseParallelGC
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+            echo "Generated gradle.properties"
+          fi
+
       - name: Decode release keystore (optional)
         id: keystore
         env:
