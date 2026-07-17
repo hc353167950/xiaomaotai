@@ -22,7 +22,12 @@ local.properties
 app/src/main/java/com/example/xiaomaotai/SupabaseConfig.kt
 gradle.properties
 
-# 注意：.jks签名文件已提交到git，密码在gradle.properties中（不提交）
+# 签名密钥（只放本机或 GitHub Secrets，禁止提交）
+*.jks
+*.keystore
+*.jks.base64
+xiaomaotai-release-key.jks
+xiaomaotai-release-key.jks.base64
 
 # Generated APKs
 *.apk
