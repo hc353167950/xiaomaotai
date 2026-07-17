@@ -20,13 +20,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.xiaomaotai.DataManager
+import com.example.xiaomaotai.Account
 import com.example.xiaomaotai.ValidationUtils
 import kotlinx.coroutines.launch
 
 @Composable
 fun ForgotPasswordScreen(
-    dataManager: DataManager,
+    account: Account,
     onResetSuccess: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -212,7 +212,7 @@ fun ForgotPasswordScreen(
                                 if (usernameValidation.isValid && emailValidation.isValid) {
                                     scope.launch {
                                         isLoading = true
-                                        val result = dataManager.sendVerificationCode(username, email)
+                                        val result = account.sendVerificationCode(username, email)
                                         if (result.isSuccess) {
                                             countdown = 60
                                             Toast.makeText(context, "验证码已发送", Toast.LENGTH_SHORT).show()
@@ -307,7 +307,7 @@ fun ForgotPasswordScreen(
                         scope.launch {
                             isLoading = true
                             serverErrorMessage = ""
-                            val result = dataManager.resetPasswordWithCode(username, email, verificationCode, newPassword)
+                            val result = account.resetPasswordWithCode(username, email, verificationCode, newPassword)
                             if (result.isSuccess) {
                                 Toast.makeText(context, "密码修改成功", Toast.LENGTH_SHORT).show()
                                 onResetSuccess()

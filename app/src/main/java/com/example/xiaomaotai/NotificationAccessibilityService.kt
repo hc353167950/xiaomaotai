@@ -57,8 +57,7 @@ class NotificationAccessibilityService : AccessibilityService() {
     private val updateRunnable = object : Runnable {
         override fun run() {
             // 只有常驻通知开启时才执行检查，避免资源浪费
-            val dataManager = DataManager(this@NotificationAccessibilityService)
-            if (dataManager.isPersistentNotificationEnabled()) {
+            if (XiaoMaoTaiApp.settings(this@NotificationAccessibilityService).isPersistentNotificationEnabled()) {
                 checkAndUpdateNotification()
             }
             // 继续下一次定时检查
@@ -79,11 +78,11 @@ class NotificationAccessibilityService : AccessibilityService() {
         }
 
         // 自动开启无障碍通知设置
-        val dataManager = DataManager(this)
-        dataManager.setAccessibilityNotification(true)
+        val settings = XiaoMaoTaiApp.settings(this)
+        settings.setAccessibilityNotification(true)
 
         // 如果常驻通知已开启，立即更新一次
-        if (dataManager.isPersistentNotificationEnabled()) {
+        if (settings.isPersistentNotificationEnabled()) {
             triggerNotificationUpdate()
         }
 
@@ -98,8 +97,7 @@ class NotificationAccessibilityService : AccessibilityService() {
         when (event?.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 // 只有常驻通知开启时才检查，避免资源浪费
-                val dataManager = DataManager(this)
-                if (dataManager.isPersistentNotificationEnabled()) {
+                if (XiaoMaoTaiApp.settings(this).isPersistentNotificationEnabled()) {
                     // 检查是否跨天了，如果是则更新通知
                     checkAndUpdateNotification()
                 }
@@ -116,8 +114,7 @@ class NotificationAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(updateRunnable)
 
         // 标记无障碍通知已关闭
-        val dataManager = DataManager(this)
-        dataManager.setAccessibilityNotification(false)
+        XiaoMaoTaiApp.settings(this).setAccessibilityNotification(false)
 
         Log.d(TAG, "无障碍服务被销毁")
     }
@@ -141,9 +138,8 @@ class NotificationAccessibilityService : AccessibilityService() {
      */
     private fun triggerNotificationUpdate() {
         try {
-            val dataManager = DataManager(this)
             // 只有常驻通知开启时才更新
-            if (!dataManager.isPersistentNotificationEnabled()) {
+            if (!XiaoMaoTaiApp.settings(this).isPersistentNotificationEnabled()) {
                 Log.d(TAG, "常驻通知未开启，跳过更新")
                 return
             }

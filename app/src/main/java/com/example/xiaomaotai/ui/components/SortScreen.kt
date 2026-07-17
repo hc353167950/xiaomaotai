@@ -38,7 +38,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
-import com.example.xiaomaotai.DataManager
+import com.example.xiaomaotai.AppSettings
+import com.example.xiaomaotai.EventStore
 import com.example.xiaomaotai.Event
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -46,7 +47,8 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SortScreen(
-    dataManager: DataManager,
+    eventStore: EventStore,
+    settings: AppSettings,
     initialEvents: List<Event>, // 接收首页传过来的事件列表
     onDone: () -> Unit
 ) {
@@ -69,7 +71,7 @@ fun SortScreen(
     val listState = rememberLazyListState()
 
     // 检测是否开启了自动排序过期事件
-    var isAutoSortEnabled by remember { mutableStateOf(dataManager.isAutoSortExpiredEventsEnabled()) }
+    var isAutoSortEnabled by remember { mutableStateOf(settings.isAutoSortExpiredEventsEnabled()) }
 
     // 每次进入都重置为默认状态，显示首页传过来的顺序
     LaunchedEffect(initialEvents) {
@@ -102,7 +104,7 @@ fun SortScreen(
                     e.copy(sortOrder = baseSortOrder - index) 
                 }
                 // 使用批量更新方法，性能更好
-                dataManager.updateEventOrder(updated)
+                eventStore.updateEventOrder(updated)
                 onDone()
             } finally {
                 isSaving = false
@@ -349,7 +351,7 @@ fun SortScreen(
                             IconButton(
                                 onClick = {
                                     isAutoSortEnabled = false
-                                    dataManager.setAutoSortExpiredEvents(false)
+                                    settings.setAutoSortExpiredEvents(false)
                                 },
                                 modifier = Modifier.size(24.dp)
                             ) {
