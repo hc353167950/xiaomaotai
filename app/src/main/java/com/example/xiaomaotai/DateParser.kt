@@ -2,8 +2,6 @@ package com.example.xiaomaotai
 
 import android.util.Log
 import java.time.LocalDate
-import java.time.Year
-import java.time.temporal.ChronoUnit
 
 /**
  * 统一的日期解析工具类
@@ -254,155 +252,12 @@ object DateParser {
     }
 
     /**
-     * 计算农历事件到下次的天数
-     * @param parsedDate 解析后的日期
-     * @param today 当前日期
-     * @return 天数
-     */
-    fun calculateLunarDaysUntil(parsedDate: ParsedDate, today: LocalDate = LocalDate.now()): Long {
-        if (parsedDate.type != DateType.LUNAR) {
-            return 0L
-        }
-
-        // 如果没有指定年份，使用当前农历年份（而不是公历年份）
-        val eventYear = parsedDate.year ?: try {
-            val solar = com.nlf.calendar.Solar(today.year, today.monthValue, today.dayOfMonth)
-            solar.lunar.year
-        } catch (e: Exception) {
-            today.year // 出错时使用公历年份作为后备
-        }
-
-        return LunarCalendarHelper.calculateLunarCountdown(
-            eventYear,
-            parsedDate.month,
-            parsedDate.day,
-            parsedDate.isLeapMonth,
-            today
-        )
-    }
-
-    /**
-     * 计算公历/忽略年份事件到下次的天数
-     * @param parsedDate 解析后的日期
-     * @param today 当前日期
-     * @return 天数（永远>=0，表示距离下一次纪念日的天数）
-     *
-     * 核心逻辑：纪念日是循环的，今年过了就计算到明年
-     * - SOLAR类型：如果事件日期在未来（年份>今年），直接计算到该日期；否则按月日循环计算
-     * - MONTH_DAY类型：只按月日循环计算
-     * - 永远不会返回负数
-     */
-    fun calculateSolarDaysUntil(parsedDate: ParsedDate, today: LocalDate = LocalDate.now()): Long {
-        val month = parsedDate.month
-        val day = parsedDate.day
-
-        return try {
-            // SOLAR类型（有年份）：检查是否是未来年份的事件
-            if (parsedDate.type == DateType.SOLAR && parsedDate.year != null) {
-                val eventYear = parsedDate.year
-
-                // 处理2月29日边界情况
-                val safeDay = if (month == 2 && day == 29 && !Year.isLeap(eventYear.toLong())) 28 else day
-                val eventDate = LocalDate.of(eventYear, month, safeDay)
-
-                // 如果事件日期在今天之后（未来日期），直接计算天数
-                if (!eventDate.isBefore(today)) {
-                    return ChronoUnit.DAYS.between(today, eventDate)
-                }
-
-                // 事件日期已过，按循环逻辑计算到下一次（今年或明年的同月日）
-            }
-
-            // 处理2月29日边界情况：在非闰年使用2月28日
-            val safeDay = if (month == 2 && day == 29 && !Year.isLeap(today.year.toLong())) 28 else day
-
-            // 计算今年的目标日期
-            var target = LocalDate.of(today.year, month, safeDay)
-
-            // 如果今年的日期已过，使用明年的日期（纪念日是循环的）
-            if (target.isBefore(today)) {
-                val nextYear = today.year + 1
-                val nextYearSafeDay = if (month == 2 && day == 29 && !Year.isLeap(nextYear.toLong())) 28 else day
-                target = LocalDate.of(nextYear, month, nextYearSafeDay)
-            }
-
-            ChronoUnit.DAYS.between(today, target)
-        } catch (e: Exception) {
-            Log.e(TAG, "计算公历天数失败: $parsedDate", e)
-            1L
-        }
-    }
-
-    /**
-     * 计算忽略年份的农历事件到下次的天数
-     * @param parsedDate 解析后的日期
-     * @param today 当前日期
-     * @return 天数
-     */
-    fun calculateLunarMonthDayDaysUntil(parsedDate: ParsedDate, today: LocalDate = LocalDate.now()): Long {
-        if (parsedDate.type != DateType.LUNAR_MONTH_DAY) {
-            return 0L
-        }
-
-        // 获取当前公历日期对应的农历年份
-        val currentLunarYear = try {
-            val solar = com.nlf.calendar.Solar(today.year, today.monthValue, today.dayOfMonth)
-            solar.lunar.year
-        } catch (e: Exception) {
-            today.year // 出错时使用公历年份作为后备
-        }
-
-        // 使用当前农历年份计算农历日期
-        return LunarCalendarHelper.calculateLunarCountdown(
-            currentLunarYear,
-            parsedDate.month,
-            parsedDate.day,
-            parsedDate.isLeapMonth,
-            today
-        )
-    }
-
-    /**
      * 计算事件到下次的天数（统一入口）
-     * @param eventDate 事件日期字符串
-     * @param today 当前日期
+     * 委托给 [Countdown] 深模块，仅保留旧的 Pair 返回形态供既有调用方使用。
      * @return Pair<显示文本, 天数>
      */
     fun calculateDaysUntil(eventDate: String, today: LocalDate = LocalDate.now()): Pair<String, Long> {
-        val parsedDate = parse(eventDate)
-
-        if (parsedDate == null) {
-            return "日期无效" to 0L
-        }
-
-        return when (parsedDate.type) {
-            DateType.LUNAR -> {
-                val days = calculateLunarDaysUntil(parsedDate, today)
-                val displayText = when {
-                    days == 0L -> "今天"
-                    days > 0 -> "还有${days}天"
-                    else -> "已过${-days}天"
-                }
-                displayText to days
-            }
-            DateType.LUNAR_MONTH_DAY -> {
-                val days = calculateLunarMonthDayDaysUntil(parsedDate, today)
-                val displayText = when {
-                    days == 0L -> "今天"
-                    days > 0 -> "还有${days}天"
-                    else -> "已过${-days}天"
-                }
-                displayText to days
-            }
-            DateType.MONTH_DAY, DateType.SOLAR -> {
-                val days = calculateSolarDaysUntil(parsedDate, today)
-                val displayText = when {
-                    days == 0L -> "今天"
-                    days > 0 -> "还有${days}天"
-                    else -> "已过${-days}天"
-                }
-                displayText to days
-            }
-        }
+        val countdown = Countdown.of(eventDate, today) ?: return "日期无效" to 0L
+        return countdown.label to countdown.days
     }
 }

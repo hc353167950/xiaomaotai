@@ -26,12 +26,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.xiaomaotai.Countdown
 import com.example.xiaomaotai.DateParser
 import com.example.xiaomaotai.Event
 import com.example.xiaomaotai.LunarCalendarHelper
 import com.example.xiaomaotai.ui.theme.LocalUiStyle
 import com.example.xiaomaotai.ui.theme.UiStyle
-import java.time.LocalDate
 
 @Composable
 fun EventItem(
@@ -52,14 +52,7 @@ fun EventItem(
     val isGlass = uiStyle == UiStyle.GlassCountdown
 
     val (label, days) = event.cachedDays?.let { cachedDays ->
-        val labelText = when {
-            cachedDays == 0L -> "就是今天"
-            cachedDays == 1L -> "明天"
-            cachedDays == -1L -> "昨天"
-            cachedDays > 0 -> "还有${cachedDays}天"
-            else -> "${kotlin.math.abs(cachedDays)}天前"
-        }
-        labelText to cachedDays
+        Countdown.labelFor(cachedDays) to cachedDays
     } ?: run {
         calculateDaysAfter(event.eventDate)
     }
@@ -549,29 +542,14 @@ private fun DragHandle(
     )
 }
 
+/**
+ * 倒计时统一走 [Countdown] 深模块，此函数仅保留旧签名作为 UI 层入口。
+ */
 fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
-    return try {
-        val today = LocalDate.now()
-        val parsedDate = DateParser.parse(eventDate)
-        if (parsedDate == null) {
-            Log.e("EventItem", "无法解析日期: $eventDate")
-            return "日期无效" to 0L
-        }
-        val daysBetween = when (parsedDate.type) {
-            DateParser.DateType.LUNAR -> DateParser.calculateLunarDaysUntil(parsedDate, today)
-            DateParser.DateType.LUNAR_MONTH_DAY -> DateParser.calculateLunarMonthDayDaysUntil(parsedDate, today)
-            DateParser.DateType.MONTH_DAY, DateParser.DateType.SOLAR ->
-                DateParser.calculateSolarDaysUntil(parsedDate, today)
-        }
-        when {
-            daysBetween == 0L -> "就是今天" to 0L
-            daysBetween == 1L -> "明天" to 1L
-            daysBetween == -1L -> "昨天" to -1L
-            daysBetween > 0 -> "还有${daysBetween}天" to daysBetween
-            else -> "${kotlin.math.abs(daysBetween)}天前" to daysBetween
-        }
-    } catch (e: Exception) {
-        Log.e("EventItem", "日期计算错误: $eventDate", e)
-        "日期无效" to 0L
+    val countdown = Countdown.of(eventDate)
+    if (countdown == null) {
+        Log.e("EventItem", "无法解析日期: $eventDate")
+        return "日期无效" to 0L
     }
+    return countdown.label to countdown.days
 }
