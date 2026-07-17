@@ -236,40 +236,48 @@ fun SortScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        // 顶部区域 - 简约设计
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+        // 顶部区域 - 白底抬起，与内容分层
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 0.dp
         ) {
-            // 标题行
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "自定义排序",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    text = "排序",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                
-                // 操作按钮
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(
                         onClick = { onDone() },
                         enabled = !isSaving
                     ) {
-                        Text("取消")
+                        Text("取消", fontWeight = FontWeight.Medium)
                     }
-                    
+
                     Button(
                         onClick = { saveAndExit() },
-                        enabled = !isSaving
+                        enabled = !isSaving,
+                        shape = RoundedCornerShape(18.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         if (isSaving) {
                             Row(
@@ -277,26 +285,25 @@ fun SortScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier.size(14.dp),
                                     strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.onPrimary
                                 )
-                                Text("保存中...")
+                                Text("保存中", fontWeight = FontWeight.SemiBold)
                             }
                         } else {
-                            Text("保存")
+                            Text("完成", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
-            
-            Spacer(Modifier.height(8.dp))
-            
-            // 说明文字
+
+            Spacer(Modifier.height(6.dp))
+
             Text(
                 text = "拖动右侧把手调整顺序",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             // 自动排序过期事件提示条
@@ -306,9 +313,10 @@ fun SortScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f)
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
                     ),
-                    shape = RoundedCornerShape(12.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(14.dp)
@@ -438,6 +446,7 @@ fun SortScreen(
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
+            }
             }
         }
 

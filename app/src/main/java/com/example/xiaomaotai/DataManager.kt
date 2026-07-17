@@ -499,6 +499,15 @@ class DataManager(private val context: Context) {
         sharedPreferences.edit().putBoolean("accessibility_notification", enabled).commit()
     }
 
+    // UI 视觉风格：soft_diary / glass_countdown（默认 A 渐变卡片）
+    fun getUiStyleId(): String {
+        return sharedPreferences.getString("ui_style", "soft_diary") ?: "soft_diary"
+    }
+
+    fun setUiStyleId(styleId: String) {
+        sharedPreferences.edit().putString("ui_style", styleId).commit()
+    }
+
     // 保存上次登录的用户名
     fun saveLastUsername(username: String) {
         sharedPreferences.edit().putString("last_login_username", username).commit()
@@ -507,33 +516,6 @@ class DataManager(private val context: Context) {
     // 获取上次登录的用户名
     fun getLastUsername(): String {
         return sharedPreferences.getString("last_login_username", "") ?: ""
-    }
-
-    // 麻将计分云端同步方法
-    suspend fun saveMahjongScoreToCloud(
-        recordTime: String,
-        winnerPosition: String,
-        winnerFan: Double,
-        positionData: String,
-        calculationDetail: String,
-        finalAmounts: String
-    ) {
-        try {
-            val currentUser = getCurrentUser()
-            if (currentUser != null) {
-                networkDataManager.saveMahjongScore(
-                    userId = currentUser.id,
-                    recordTime = recordTime,
-                    winnerPosition = winnerPosition,
-                    winnerFan = winnerFan,
-                    positionData = positionData,
-                    calculationDetail = calculationDetail,
-                    finalAmounts = finalAmounts
-                )
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save mahjong score to cloud", e)
-        }
     }
 
     /**

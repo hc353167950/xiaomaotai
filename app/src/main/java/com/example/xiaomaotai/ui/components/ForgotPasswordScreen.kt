@@ -108,13 +108,14 @@ fun ForgotPasswordScreen(
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "返回",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
                 Text(
                     text = "忘记密码",
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
@@ -191,7 +192,7 @@ fun ForgotPasswordScreen(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             isError = verificationCodeError != null,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
@@ -224,7 +225,7 @@ fun ForgotPasswordScreen(
                             },
                             enabled = countdown == 0 && !isLoading,
                             modifier = Modifier.height(56.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -320,7 +321,7 @@ fun ForgotPasswordScreen(
                         .fillMaxWidth()
                         .height(50.dp),
                     enabled = !isLoading,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     )

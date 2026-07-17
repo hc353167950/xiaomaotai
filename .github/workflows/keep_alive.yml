@@ -8,27 +8,34 @@ on:
     - cron: '0 12 * * *'  # 每天 UTC 时间 12:00（北京时间 20:00）执行
   workflow_dispatch:  # 允许手动触发
 
+permissions:
+  contents: write
+
 jobs:
   keep-alive:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
-    
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
     - name: Set up Python 3.10
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         cache: 'pip'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install supabase python-dotenv
-        pip list  # 显示安装的包，用于调试
-    
+        pip list
+
     - name: Run keep alive script
+      id: keep_alive
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -39,7 +46,60 @@ jobs:
         pwd
         echo "文件列表:"
         ls -la
-        echo "脚本内容:"
-        cat scripts/keep_alive.py
         echo "开始执行脚本..."
         python scripts/keep_alive.py
+
+    - name: Write heartbeat and commit
+      if: always()
+      env:
+        RUN_STATUS: ${{ steps.keep_alive.outcome }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_NUMBER: ${{ github.run_number }}
+        WORKFLOW: ${{ github.workflow }}
+        ACTOR: ${{ github.actor }}
+        EVENT_NAME: ${{ github.event_name }}
+        TARGET_BRANCH: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        mkdir -p .github
+        HEARTBEAT_FILE=".github/keep_alive_heartbeat.json"
+
+        export TIMESTAMP_UTC
+        export TIMESTAMP_CST
+        TIMESTAMP_UTC=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        TIMESTAMP_CST=$(TZ=Asia/Shanghai date +"%Y-%m-%d %H:%M:%S %Z")
+
+        python <<'PY'
+        import json
+        import os
+        import time
+        from pathlib import Path
+
+        path = Path(".github/keep_alive_heartbeat.json")
+        data = {
+            "last_run_utc": os.environ.get("TIMESTAMP_UTC", ""),
+            "last_run_cst": os.environ.get("TIMESTAMP_CST", ""),
+            "status": os.environ.get("RUN_STATUS", "unknown"),
+            "run_id": os.environ.get("RUN_ID", "0"),
+            "run_number": int(os.environ.get("RUN_NUMBER") or "0"),
+            "workflow": os.environ.get("WORKFLOW", ""),
+            "event_name": os.environ.get("EVENT_NAME", ""),
+            "actor": os.environ.get("ACTOR", ""),
+            "touch_unix": int(time.time()),
+            "purpose": "Keep GitHub Actions active by committing a heartbeat after each keep-alive run",
+        }
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(path.read_text(encoding="utf-8"))
+        PY
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+        git add "$HEARTBEAT_FILE"
+        if git diff --cached --quiet; then
+          echo "No heartbeat changes detected"
+          exit 0
+        fi
+
+        git commit -m "chore(keep-alive): heartbeat ${TIMESTAMP_UTC} (${RUN_STATUS:-unknown})"
+        git push origin "HEAD:${TARGET_BRANCH}"
