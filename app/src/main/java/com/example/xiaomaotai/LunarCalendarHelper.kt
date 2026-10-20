@@ -5,427 +5,329 @@ import com.nlf.calendar.Lunar
 import com.nlf.calendar.LunarYear
 import com.nlf.calendar.Solar
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 /**
- * 农历日期转换工具类
- * 使用专业的农历库进行准确的农历/阳历转换
+ * 农历计算工具：所有农历/公历转换与闰月判定的唯一来源。
+ *
+ * 设计要点：
+ * 1. 闰月数据全部来自 lunar-java 的 [LunarYear.getLeapMonth]，不再硬编码年份表。
+ *    （旧版硬编码表只覆盖 9 个年份，实际 2020-2050 有 12 个闰月年，漏了 2020/2047/2050。）
+ * 2. 闰月纪念日「顺延」语义：若某个农历年没有该闰月，向后寻找最近的有该闰月的年份，
+ *    倒计时按到那一年的天数显示，绝不降级为普通月。
+ * 3. 农历三十遇到只有 29 天的月份时，同样顺延到下一个该月有 30 天的年份。
+ * 4. 非法农历日期（如闰月不存在、日超出月长）在解析阶段即被拒绝，不再静默返回 365 天。
  */
 object LunarCalendarHelper {
-    
-    /**
-     * 将阳历日期转换为农历日期字符串
-     */
+
+    private const val TAG = "LunarCalendarHelper"
+
+    /** 顺延搜索上限：实测闰二月/闰八月最大间隔 57 年，100 年足以覆盖 */
+    private const val MAX_LOOKAHEAD_YEARS = 100
+
+    // ---------- 阳历 / 农历互转 ----------
+
+    /** 阳历 → 农历显示文本，如「二〇二五年闰六月初一」 */
     fun solarToLunar(year: Int, month: Int, day: Int): String {
-        val solar = Solar(year, month, day)
-        val lunar = solar.lunar
-
-        // 确保月份和日期在有效范围内
-        val isLeap = lunar.month < 0 // 负数表示闰月
+        val lunar = Solar(year, month, day).lunar
+        val isLeap = lunar.month < 0
         val actualMonth = if (isLeap) -lunar.month else lunar.month
-        val monthName = getLunarMonthName(actualMonth.coerceIn(1, 12), isLeap)
-        val dayName = getLunarDayName(lunar.day.coerceIn(1, 30))
-
-        return "${lunar.yearInChinese}年${monthName}${dayName}"
+        return "${lunar.yearInChinese}年" +
+            getLunarMonthName(actualMonth.coerceIn(1, 12), isLeap) +
+            getLunarDayName(lunar.day.coerceIn(1, 30))
     }
-    
-    /**
-     * 将农历日期转换为阳历日期字符串
-     */
-    fun lunarToSolar(lunarYear: Int, lunarMonth: Int, lunarDay: Int): String {
-        val lunar = Lunar(lunarYear, lunarMonth, lunarDay)
-        val solar = lunar.solar
 
-        return String.format("%04d-%02d-%02d",
-            solar.year, solar.month, solar.day)
-    }
-    
     /**
-     * 将农历日期转换为阳历日期字符串（支持闰月）
+     * 农历 → 阳历。
+     * @return 形如 2025-07-25；农历日期非法时返回 null（不再抛异常给调用方）
      */
-    fun lunarToSolar(lunarYear: Int, lunarMonth: Int, lunarDay: Int, isLeap: Boolean): String {
-        val lunar = if (isLeap) {
-            Lunar(lunarYear, -lunarMonth, lunarDay) // 负数表示闰月
-        } else {
-            Lunar(lunarYear, lunarMonth, lunarDay)
-        }
-        val solar = lunar.solar
-
-        return String.format("%04d-%02d-%02d",
-            solar.year, solar.month, solar.day)
-    }
-    
-    /**
-     * 获取农历月份名称
-     */
-    fun getLunarMonthName(month: Int): String {
-        return when (month) {
-            1 -> "正月"
-            2 -> "二月"
-            3 -> "三月"
-            4 -> "四月"
-            5 -> "五月"
-            6 -> "六月"
-            7 -> "七月"
-            8 -> "八月"
-            9 -> "九月"
-            10 -> "十月"
-            11 -> "十一月"
-            12 -> "腊月"
-            else -> "未知月"
+    fun lunarToSolar(lunarYear: Int, lunarMonth: Int, lunarDay: Int, isLeap: Boolean = false): String? {
+        return try {
+            val signedMonth = if (isLeap) -lunarMonth else lunarMonth
+            val solar = Lunar(lunarYear, signedMonth, lunarDay).solar
+            String.format("%04d-%02d-%02d", solar.year, solar.month, solar.day)
+        } catch (e: Exception) {
+            Log.w(TAG, "农历转公历失败: ${lunarYear}年${if (isLeap) "闰" else ""}${lunarMonth}月${lunarDay}日 -> ${e.message}")
+            null
         }
     }
-    
-    /**
-     * 获取农历月份名称（支持闰月）
-     */
-    fun getLunarMonthName(month: Int, isLeap: Boolean): String {
-        val baseName = getLunarMonthName(month)
-        return if (isLeap) "闰$baseName" else baseName
-    }
-    
-    /**
-     * 获取农历日期名称
-     */
-    fun getLunarDayName(day: Int): String {
-        return when (day) {
-            1 -> "初一"
-            2 -> "初二"
-            3 -> "初三"
-            4 -> "初四"
-            5 -> "初五"
-            6 -> "初六"
-            7 -> "初七"
-            8 -> "初八"
-            9 -> "初九"
-            10 -> "初十"
-            11 -> "十一"
-            12 -> "十二"
-            13 -> "十三"
-            14 -> "十四"
-            15 -> "十五"
-            16 -> "十六"
-            17 -> "十七"
-            18 -> "十八"
-            19 -> "十九"
-            20 -> "二十"
-            21 -> "廿一"
-            22 -> "廿二"
-            23 -> "廿三"
-            24 -> "廿四"
-            25 -> "廿五"
-            26 -> "廿六"
-            27 -> "廿七"
-            28 -> "廿八"
-            29 -> "廿九"
-            30 -> "三十"
-            else -> "未知日"
-        }
-    }
-    
-    /**
-     * 检查是否为闰年
-     */
-    fun isLeapYear(year: Int): Boolean {
-        return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
-    }
-    
-    /**
-     * 获取指定年月的天数
-     */
-    fun getDaysInMonth(year: Int, month: Int): Int {
-        return when (month) {
-            2 -> if (isLeapYear(year)) 29 else 28
-            4, 6, 9, 11 -> 30
-            else -> 31
-        }
-    }
-    
-    /**
-     * 格式化农历日期
-     */
-    fun formatLunarDate(year: Int, month: Int, day: Int): String {
-        return "${year}年${getLunarMonthName(month)}${getLunarDayName(day)}"
+
+    /** 农历 → [LocalDate]，非法日期返回 null */
+    fun lunarToLocalDate(lunarYear: Int, lunarMonth: Int, lunarDay: Int, isLeap: Boolean): LocalDate? =
+        lunarToSolar(lunarYear, lunarMonth, lunarDay, isLeap)?.let { LocalDate.parse(it) }
+
+    /** 校验农历日期是否真实存在（用于添加事件时拦截非法日期） */
+    fun isValidLunarDate(lunarYear: Int, lunarMonth: Int, lunarDay: Int, isLeap: Boolean): Boolean =
+        lunarToLocalDate(lunarYear, lunarMonth, lunarDay, isLeap) != null
+
+    // ---------- 闰月查询 ----------
+
+    /** 指定农历年的闰月月份，0 表示无闰月。数据来自库，无需硬编码 */
+    fun getLeapMonth(year: Int): Int = try {
+        LunarYear.fromYear(year).leapMonth
+    } catch (e: Exception) {
+        Log.e(TAG, "获取 $year 年闰月失败: ${e.message}")
+        0
     }
 
-    fun getYearName(year: Int): String {
-        return "${year}年"
+    fun hasLeapMonth(year: Int): Boolean = getLeapMonth(year) > 0
+
+    /**
+     * 从 [fromYear] 起（含）寻找最近一个存在闰 [leapMonth] 月的年份。
+     * @return 找到的年份；[MAX_LOOKAHEAD_YEARS] 年内不存在则返回 null
+     */
+    fun findNextLeapMonthYear(leapMonth: Int, fromYear: Int): Int? {
+        if (leapMonth !in 1..12) return null
+        for (year in fromYear..(fromYear + MAX_LOOKAHEAD_YEARS)) {
+            if (getLeapMonth(year) == leapMonth) return year
+        }
+        return null
     }
 
-    fun getMonthName(month: Int): String {
-        return getLunarMonthName(month)
-    }
-    
     /**
-     * 获取指定年份的农历月份列表（包含闰月）
+     * 从 [fromYear] 起（含）寻找最近一个该农历月有 [day] 天的年份。
+     * 用于「农历三十」在只有 29 天的月份里的顺延。
+     */
+    fun findNextYearWhereMonthHasDay(month: Int, day: Int, fromYear: Int): Int? {
+        if (month !in 1..12 || day !in 1..30) return null
+        for (year in fromYear..(fromYear + MAX_LOOKAHEAD_YEARS)) {
+            val days = getLunarMonthDays(year, month, isLeap = false)
+            if (days >= day) return year
+        }
+        return null
+    }
+
+    // ---------- 月份/日期名称 ----------
+
+    fun getLunarMonthName(month: Int): String = when (month) {
+        1 -> "正月"
+        2 -> "二月"
+        3 -> "三月"
+        4 -> "四月"
+        5 -> "五月"
+        6 -> "六月"
+        7 -> "七月"
+        8 -> "八月"
+        9 -> "九月"
+        10 -> "十月"
+        11 -> "十一月"
+        12 -> "腊月"
+        else -> "未知月"
+    }
+
+    fun getLunarMonthName(month: Int, isLeap: Boolean): String =
+        if (isLeap) "闰${getLunarMonthName(month)}" else getLunarMonthName(month)
+
+    fun getLunarDayName(day: Int): String = when (day) {
+        1 -> "初一"; 2 -> "初二"; 3 -> "初三"; 4 -> "初四"; 5 -> "初五"
+        6 -> "初六"; 7 -> "初七"; 8 -> "初八"; 9 -> "初九"; 10 -> "初十"
+        11 -> "十一"; 12 -> "十二"; 13 -> "十三"; 14 -> "十四"; 15 -> "十五"
+        16 -> "十六"; 17 -> "十七"; 18 -> "十八"; 19 -> "十九"; 20 -> "二十"
+        21 -> "廿一"; 22 -> "廿二"; 23 -> "廿三"; 24 -> "廿四"; 25 -> "廿五"
+        26 -> "廿六"; 27 -> "廿七"; 28 -> "廿八"; 29 -> "廿九"; 30 -> "三十"
+        else -> "未知日"
+    }
+
+    fun getDayName(day: Int): String = getLunarDayName(day)
+
+    fun getYearName(year: Int): String = "${year}年"
+
+    fun getMonthName(month: Int): String = getLunarMonthName(month)
+
+    fun formatLunarDate(year: Int, month: Int, day: Int): String =
+        "${year}年${getLunarMonthName(month)}${getLunarDayName(day)}"
+
+    // ---------- 公历辅助 ----------
+
+    fun isLeapYear(year: Int): Boolean =
+        (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+
+    fun getDaysInMonth(year: Int, month: Int): Int = when (month) {
+        2 -> if (isLeapYear(year)) 29 else 28
+        4, 6, 9, 11 -> 30
+        else -> 31
+    }
+
+    /**
+     * 指定农历月的实际天数（大月 30 / 小月 29）。
+     * 直接问库的 [LunarYear.getMonth]，闰月用负数传入，不再用 abs 猜。
+     */
+    fun getLunarMonthDays(year: Int, month: Int, isLeap: Boolean): Int {
+        return try {
+            val signedMonth = if (isLeap) -month else month
+            val lunarMonth = LunarYear.fromYear(year).getMonth(signedMonth)
+            lunarMonth?.dayCount ?: 30
+        } catch (e: Exception) {
+            Log.e(TAG, "获取农历${year}年${if (isLeap) "闰" else ""}${month}月天数失败: ${e.message}")
+            30
+        }
+    }
+
+    /**
+     * 指定农历年的月份列表（含闰月）。
+     * 闰月以负数表示（如闰六月 → -6），与选择器的约定一致。
      */
     fun getLunarMonthsInYear(year: Int): List<Pair<Int, Boolean>> {
+        val leapMonth = getLeapMonth(year)
         val months = mutableListOf<Pair<Int, Boolean>>()
-        
-        // 闰月数据表（作为备用方案）
-        val knownLeapMonths = mapOf(
-            2023 to 2,  // 闰二月
-            2025 to 6,  // 闰六月
-            2028 to 5,  // 闰五月
-            2031 to 3,  // 闰三月
-            2033 to 11, // 闰十一月
-            2036 to 6,  // 闰六月
-            2039 to 5,  // 闰五月
-            2042 to 2,  // 闰二月
-            2044 to 7   // 闰七月
-        )
-        
-        // 检查是否有闰月
-        var leapMonth = 0
-        try {
-            // 方法1: 使用LunarYear API
-            val lunarYear = com.nlf.calendar.LunarYear.fromYear(year)
-            leapMonth = lunarYear.leapMonth
-            android.util.Log.d("LunarCalendarHelper", "Method 1 - Year $year leap month: $leapMonth")
-            
-            // 方法2: 如果API失败，使用已知数据
-            if (leapMonth == 0 && knownLeapMonths.containsKey(year)) {
-                leapMonth = knownLeapMonths[year]!!
-                android.util.Log.d("LunarCalendarHelper", "Method 2 - Using known data, year $year leap month: $leapMonth")
-            }
-            
-            // 方法3: 通过遍历每个月份来检测闰月
-            if (leapMonth == 0) {
-                android.util.Log.d("LunarCalendarHelper", "Method 1&2 failed, trying method 3")
-                for (month in 1..12) {
-                    try {
-                        // 尝试创建闰月日期，如果成功则说明有闰月
-                        val testLunar = com.nlf.calendar.Lunar(year, -month, 1)
-                        val testSolar = testLunar.solar
-                        if (testSolar.year == year || testSolar.year == year + 1) {
-                            leapMonth = month
-                            android.util.Log.d("LunarCalendarHelper", "Method 3 - Found leap month $month for year $year")
-                            break
-                        }
-                    } catch (e: Exception) {
-                        // 这个月份没有闰月，继续下一个
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("LunarCalendarHelper", "Error getting leap month for year $year", e)
-            // 如果所有方法都失败，尝试使用已知数据
-            if (knownLeapMonths.containsKey(year)) {
-                leapMonth = knownLeapMonths[year]!!
-                android.util.Log.d("LunarCalendarHelper", "Fallback - Using known data, year $year leap month: $leapMonth")
-            }
-        }
-        
-        // 按顺序添加月份，在闰月位置后插入闰月
         for (month in 1..12) {
-            months.add(Pair(month, false)) // 正常月份
-            
-            // 如果当前月份是闰月，在其后插入闰月
+            months.add(Pair(month, false))
+            // 闰月插在同名普通月之后
             if (leapMonth > 0 && month == leapMonth) {
-                months.add(Pair(month, true)) // 闰月
-                android.util.Log.d("LunarCalendarHelper", "Added leap month $month for year $year")
+                months.add(Pair(month, true))
             }
         }
-        
-        android.util.Log.d("LunarCalendarHelper", "Total months for year $year: ${months.size}, months: $months")
         return months
     }
-    
+
     /**
-     * 计算农历事件的准确倒计时天数，正确处理闰月影响
-     * 统一逻辑：
-     * - 如果事件年份在未来，直接计算到该年份的农历日期
-     * - 否则按照"普通月→闰月（如果有）→明年"的顺序提醒
+     * 计算农历事件在某农历年内全部可能发生的公历日期。
+     *
+     * 语义（与产品确认一致）：
+     * - **普通月事件**（如六月十六）：该年有此闰月时，普通六月十六与闰六月十六
+     *   是两天，都要过 —— 返回两个候选。无闰月年份只有普通月一天。
+     * - **闰月事件**（如闰六月十六）：该年有此闰月则用闰月那天；该年没有此闰月，
+     *   退回普通月那天（「实际没有闰月，普通也会过」），而不是顺延到几十年后。
+     * - 农历三十遇只有 29 天的月份：该年无候选，由调用方继续向后找年份。
+     *
+     * @return 该年的候选日期列表（可能为空），按时间升序
      */
-    fun calculateLunarCountdown(
-        eventYear: Int,
+    fun candidatesForYear(
+        lunarYear: Int,
+        eventMonth: Int,
+        eventDay: Int,
+        isEventLeap: Boolean
+    ): List<LocalDate> {
+        return try {
+            val hasThisLeapMonth = getLeapMonth(lunarYear) == eventMonth
+            val result = mutableListOf<LocalDate>()
+
+            if (isEventLeap) {
+                // 闰月事件：有此闰月用闰月，没有则退回普通月
+                val date = if (hasThisLeapMonth) {
+                    lunarToLocalDate(lunarYear, eventMonth, eventDay, isLeap = true)
+                } else {
+                    lunarToLocalDate(lunarYear, eventMonth, eventDay, isLeap = false)
+                }
+                date?.let { result.add(it) }
+            } else {
+                // 普通月事件：普通月那天必有（除非该月天数不足）
+                lunarToLocalDate(lunarYear, eventMonth, eventDay, isLeap = false)
+                    ?.let { result.add(it) }
+                // 该年有此闰月时，闰月那天是「第二次」
+                if (hasThisLeapMonth) {
+                    lunarToLocalDate(lunarYear, eventMonth, eventDay, isLeap = true)
+                        ?.let { result.add(it) }
+                }
+            }
+            result.sorted()
+        } catch (e: Exception) {
+            Log.e(TAG, "计算农历候选日期失败: ${lunarYear}年${eventMonth}月${eventDay}日", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * 一个农历事件的下一次发生：天数 + 命中的公历日期 + 是否命中的闰月。
+     */
+    data class NextOccurrence(
+        val days: Long,
+        val date: LocalDate,
+        /** true 表示这次命中的是闰月那天（闰月年的「第二次」） */
+        val isLeapHit: Boolean
+    )
+
+    /**
+     * 计算农历事件的下一次发生。
+     *
+     * 从当前农历年起逐年向后找，取所有候选中最早的不早于 [currentDate] 的那一天。
+     * 这样闰月年的「普通月 → 闰月」两次会依次命中，两次都过完才轮到下一农历年。
+     *
+     * @param eventYear 事件指定年份；传 null 表示忽略年份（按当前农历年循环）
+     * @return 找不到返回 null（如闰月日在该月不存在且百年内无匹配）
+     */
+    fun nextOccurrence(
+        eventYear: Int?,
         eventMonth: Int,
         eventDay: Int,
         isEventLeap: Boolean,
         currentDate: LocalDate
-    ): Long {
+    ): NextOccurrence? {
         return try {
-            val currentYear = currentDate.year
-
-            Log.d("LunarCalendarHelper", "开始农历计算: 事件农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日, 当前公历年份: $currentYear")
-
-            // 首先将农历日期转换为公历日期，然后与当前日期比较
-            // 不能直接比较农历年份和公历年份，因为农历腊月可能对应下一个公历年
-            val eventSolarDate = try {
-                val solarDate = lunarToSolar(eventYear, eventMonth, eventDay, isEventLeap)
-                LocalDate.parse(solarDate)
-            } catch (e: Exception) {
-                Log.e("LunarCalendarHelper", "农历转公历失败: 农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日", e)
-                null
-            }
-
-            if (eventSolarDate != null) {
-                Log.d("LunarCalendarHelper", "农历${eventYear}年${if (isEventLeap) "闰" else ""}${eventMonth}月${eventDay}日 -> 公历${eventSolarDate}")
-                
-                // 如果事件的公历日期在今天或之后，直接计算天数差
-                if (!eventSolarDate.isBefore(currentDate)) {
-                    val daysToEvent = ChronoUnit.DAYS.between(currentDate, eventSolarDate)
-                    Log.d("LunarCalendarHelper", "✅ 事件公历日期未过: $eventSolarDate，还有${daysToEvent}天")
-                    return daysToEvent
+            // 指定了年份：先看该年是否还有未过的候选
+            if (eventYear != null) {
+                val hit = candidatesForYear(eventYear, eventMonth, eventDay, isEventLeap)
+                    .firstOrNull { !it.isBefore(currentDate) }
+                if (hit != null) {
+                    return NextOccurrence(
+                        days = ChronoUnit.DAYS.between(currentDate, hit),
+                        date = hit,
+                        isLeapHit = isLeapCandidate(eventYear, eventMonth, eventDay, hit)
+                    )
                 }
-                
-                Log.d("LunarCalendarHelper", "⚠️ 事件公历日期已过: $eventSolarDate，按循环逻辑计算下一次")
             }
 
-            // 事件日期已过，按循环逻辑计算下一次（今年或明年的同农历日期）
-            return calculateUnifiedLunarEventDays(currentDate, eventMonth, eventDay)
-
+            val startYear = currentLunarYear(currentDate)
+            for (offset in 0..MAX_LOOKAHEAD_YEARS) {
+                val year = startYear + offset
+                val best = candidatesForYear(year, eventMonth, eventDay, isEventLeap)
+                    .firstOrNull { !it.isBefore(currentDate) }
+                    ?: continue
+                return NextOccurrence(
+                    days = ChronoUnit.DAYS.between(currentDate, best),
+                    date = best,
+                    isLeapHit = isLeapCandidate(year, eventMonth, eventDay, best)
+                )
+            }
+            Log.w(TAG, "农历${eventMonth}月${eventDay}日在 $MAX_LOOKAHEAD_YEARS 年内无候选")
+            null
         } catch (e: Exception) {
-            Log.e("LunarCalendarHelper", "计算农历倒计时失败", e)
-            365L
+            Log.e(TAG, "计算农历下一次发生失败", e)
+            null
         }
     }
-    
+
     /**
-     * 统一处理农历事件的倒计时逻辑
-     * 无论用户添加的是普通月还是闰月，都按照"普通月→闰月（如果有）→明年"的顺序
+     * 判断某个候选日期是否来自闰月那天。
+     * 用于通知文案区分「六月十六」与「闰六月十六」。
      */
-    private fun calculateUnifiedLunarEventDays(
-        currentDate: LocalDate,
+    fun isLeapCandidate(lunarYear: Int, eventMonth: Int, eventDay: Int, date: LocalDate): Boolean {
+        if (getLeapMonth(lunarYear) != eventMonth) return false
+        return lunarToLocalDate(lunarYear, eventMonth, eventDay, isLeap = true) == date
+    }
+
+    /**
+     * 兼容旧调用方的倒计时接口。
+     * @return 天数；找不到返回 [Long.MAX_VALUE]（由 Countdown 转成 null）
+     */
+    fun calculateLunarCountdown(
+        eventYear: Int?,
         eventMonth: Int,
-        eventDay: Int
-    ): Long {
-        try {
-            // 首先获取当前日期对应的农历年份（重要！农历年份可能与公历年份不同）
-            val currentSolar = Solar(currentDate.year, currentDate.monthValue, currentDate.dayOfMonth)
-            val currentLunar = currentSolar.lunar
-            val currentLunarYear = currentLunar.year
-            val currentLunarMonth = currentLunar.month
-            val currentLunarDay = currentLunar.day
-            
-            Log.d("LunarCalendarHelper", "当前公历: $currentDate -> 农历: ${currentLunarYear}年${currentLunarMonth}月${currentLunarDay}日")
+        eventDay: Int,
+        isEventLeap: Boolean,
+        currentDate: LocalDate
+    ): Long = nextOccurrence(eventYear, eventMonth, eventDay, isEventLeap, currentDate)?.days
+        ?: Long.MAX_VALUE
 
-            // 步骤1: 检查当前农历年的普通月事件是否还没到
-            val thisYearNormalEventDate = try {
-                val solarDate = lunarToSolar(currentLunarYear, eventMonth, eventDay, false)
-                LocalDate.parse(solarDate)
-            } catch (e: Exception) {
-                Log.e("LunarCalendarHelper", "当前农历年普通月转换失败", e)
-                null
-            }
-
-            if (thisYearNormalEventDate != null && !thisYearNormalEventDate.isBefore(currentDate)) {
-                // 当前农历年普通月事件还没到，直接返回到普通月的天数
-                val daysToEvent = ChronoUnit.DAYS.between(currentDate, thisYearNormalEventDate)
-                Log.d("LunarCalendarHelper", "✅ 当前农历年普通月未到: $thisYearNormalEventDate，还有${daysToEvent}天")
-                return daysToEvent
-            }
-
-            Log.d("LunarCalendarHelper", "⚠️ 当前农历年普通月已过: $thisYearNormalEventDate，检查是否有闰月")
-
-            // 步骤2: 普通月已过，检查当前农历年是否有对应的闰月
-            val thisYearLeapMonth = getLeapMonth(currentLunarYear)
-            Log.d("LunarCalendarHelper", "📅 当前农历年闰月: ${if (thisYearLeapMonth > 0) "${thisYearLeapMonth}月" else "无"}")
-
-            if (thisYearLeapMonth == eventMonth) {
-                // 当前农历年有对应的闰月，检查闰月日期是否还没到
-                val thisYearLeapEventDate = try {
-                    val solarDate = lunarToSolar(currentLunarYear, eventMonth, eventDay, true)
-                    LocalDate.parse(solarDate)
-                } catch (e: Exception) {
-                    Log.e("LunarCalendarHelper", "当前农历年闰月转换失败", e)
-                    null
-                }
-
-                if (thisYearLeapEventDate != null && !thisYearLeapEventDate.isBefore(currentDate)) {
-                    // 闰月日期还没到，返回到闰月的天数
-                    val daysToLeapEvent = ChronoUnit.DAYS.between(currentDate, thisYearLeapEventDate)
-                    Log.d("LunarCalendarHelper", "✅ 当前农历年闰月未到: $thisYearLeapEventDate，还有${daysToLeapEvent}天")
-                    return daysToLeapEvent
-                } else {
-                    Log.d("LunarCalendarHelper", "⚠️ 当前农历年闰月已过: $thisYearLeapEventDate")
-                }
-            } else {
-                Log.d("LunarCalendarHelper", "⚠️ 当前农历年没有对应的闰${eventMonth}月")
-            }
-
-            // 步骤3: 普通月和闰月都过了（或当前农历年没有闰月），计算到下一个农历年普通月的天数
-            Log.d("LunarCalendarHelper", "📆 开始计算到下一个农历年普通月的天数")
-
-            val nextLunarYear = currentLunarYear + 1
-            val nextYearEventDate = try {
-                val solarDate = lunarToSolar(nextLunarYear, eventMonth, eventDay, false)
-                LocalDate.parse(solarDate)
-            } catch (e: Exception) {
-                Log.e("LunarCalendarHelper", "下一农历年普通月转换失败", e)
-                LocalDate.of(currentDate.year + 1, eventMonth.coerceIn(1, 12), eventDay.coerceIn(1, 28))
-            }
-
-            // 简化计算：直接计算当前日期到下一农历年事件日期的天数差
-            val totalDays = ChronoUnit.DAYS.between(currentDate, nextYearEventDate)
-
-            Log.d("LunarCalendarHelper", "✅ 跨年计算: 从$currentDate 到 $nextYearEventDate = ${totalDays}天")
-
-            return totalDays
-
-        } catch (e: Exception) {
-            Log.e("LunarCalendarHelper", "统一农历计算失败", e)
-            return 365L
-        }
+    /** 当前公历日期对应的农历年份（农历腊月可能落在下一公历年，不能用公历年） */
+    fun currentLunarYear(date: LocalDate): Int = try {
+        Solar(date.year, date.monthValue, date.dayOfMonth).lunar.year
+    } catch (e: Exception) {
+        date.year
     }
 
     /**
-     * 检查指定年份是否有闰月
+     * 描述闰月事件的「下次发生」信息，供 UI 说明用。
+     * 例：闰六月十六 → 「下次闰六月在 2036 年」
      */
-    fun hasLeapMonth(year: Int): Boolean {
-        return try {
-            val lunarYear = com.nlf.calendar.LunarYear.fromYear(year)
-            lunarYear.leapMonth > 0
-        } catch (e: Exception) {
-            false
-        }
-    }
-    
-    /**
-     * 获取指定年份的闰月月份（如果有）
-     */
-    fun getLeapMonth(year: Int): Int {
-        return try {
-            val lunarYear = com.nlf.calendar.LunarYear.fromYear(year)
-            lunarYear.leapMonth
-        } catch (e: Exception) {
-            0
-        }
-    }
-
-    fun getDayName(day: Int): String {
-        return getLunarDayName(day)
-    }
-
-    /**
-     * 获取农历月份的实际天数（大月30天，小月29天）
-     * @param year 农历年份
-     * @param month 农历月份（1-12）
-     * @param isLeap 是否为闰月
-     * @return 该月的天数（29或30）
-     */
-    fun getLunarMonthDays(year: Int, month: Int, isLeap: Boolean): Int {
-        return try {
-            val lunarYear = com.nlf.calendar.LunarYear.fromYear(year)
-            val months = lunarYear.months
-
-            // 查找对应的月份
-            for (lunarMonth in months) {
-                val monthValue = lunarMonth.month
-                val isMonthLeap = lunarMonth.isLeap
-
-                if (kotlin.math.abs(monthValue) == month && isMonthLeap == isLeap) {
-                    return lunarMonth.dayCount
-                }
-            }
-
-            // 如果没找到，返回默认值30
-            Log.w("LunarCalendarHelper", "未找到农历${year}年${if (isLeap) "闰" else ""}${month}月，使用默认30天")
-            30
-        } catch (e: Exception) {
-            Log.e("LunarCalendarHelper", "获取农历月份天数失败: ${year}年${if (isLeap) "闰" else ""}${month}月", e)
-            30 // 出错时返回默认值
-        }
+    fun describeNextLeapOccurrence(
+        eventMonth: Int,
+        eventDay: Int,
+        currentDate: LocalDate = LocalDate.now()
+    ): String? {
+        val startYear = currentLunarYear(currentDate)
+        val year = findNextLeapMonthYear(eventMonth, startYear) ?: return null
+        val date = lunarToLocalDate(year, eventMonth, eventDay, true) ?: return null
+        return "下次闰${getLunarMonthName(eventMonth)}${getLunarDayName(eventDay)}在 $year 年（$date）"
     }
 }

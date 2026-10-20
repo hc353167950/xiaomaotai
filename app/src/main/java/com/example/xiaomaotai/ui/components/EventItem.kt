@@ -1,8 +1,10 @@
 package com.example.xiaomaotai.ui.components
 
 import android.util.Log
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +22,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -30,7 +33,11 @@ import com.example.xiaomaotai.Countdown
 import com.example.xiaomaotai.DateParser
 import com.example.xiaomaotai.Event
 import com.example.xiaomaotai.LunarCalendarHelper
+import com.example.xiaomaotai.ui.theme.LocalDarkTheme
 import com.example.xiaomaotai.ui.theme.LocalUiStyle
+import com.example.xiaomaotai.ui.theme.Shape
+import com.example.xiaomaotai.ui.theme.Sizes
+import com.example.xiaomaotai.ui.theme.Space
 import com.example.xiaomaotai.ui.theme.UiStyle
 
 @Composable
@@ -50,6 +57,7 @@ fun EventItem(
     var isCurrentlyDragging by remember { mutableStateOf(false) }
     val uiStyle = LocalUiStyle.current
     val isGlass = uiStyle == UiStyle.GlassCountdown
+    val isDark = LocalDarkTheme.current
 
     val (label, days) = event.cachedDays?.let { cachedDays ->
         Countdown.labelFor(cachedDays) to cachedDays
@@ -64,14 +72,18 @@ fun EventItem(
             parsedDate.type == DateParser.DateType.LUNAR -> {
                 val monthName = LunarCalendarHelper.getLunarMonthName(parsedDate.month, parsedDate.isLeapMonth)
                 val dayName = LunarCalendarHelper.getLunarDayName(parsedDate.day)
-                "$monthName$dayName ${parsedDate.year}"
+                "$monthName$dayName · ${parsedDate.year}"
             }
             parsedDate.type == DateParser.DateType.LUNAR_MONTH_DAY -> {
                 val monthName = LunarCalendarHelper.getLunarMonthName(parsedDate.month, parsedDate.isLeapMonth)
                 val dayName = LunarCalendarHelper.getLunarDayName(parsedDate.day)
-                "$monthName$dayName"
+                monthName + dayName
             }
-            parsedDate.type == DateParser.DateType.MONTH_DAY -> event.eventDate
+            parsedDate.type == DateParser.DateType.MONTH_DAY -> {
+                val monthStr = parsedDate.month.toString().padStart(2, '0')
+                val dayStr = parsedDate.day.toString().padStart(2, '0')
+                "$monthStr-$dayStr · 每年"
+            }
             else -> {
                 val monthStr = parsedDate.month.toString().padStart(2, '0')
                 val dayStr = parsedDate.day.toString().padStart(2, '0')
@@ -80,9 +92,9 @@ fun EventItem(
         }
     }
 
-    val cardStyle = remember(event.backgroundId, days, uiStyle) {
-        if (days == 0L) CardStyleManager.getTodayStyle(uiStyle)
-        else CardStyleManager.getCardStyle(event.backgroundId, uiStyle)
+    val cardStyle = remember(event.backgroundId, days, uiStyle, isDark) {
+        if (days == 0L) CardStyleManager.getTodayStyle(uiStyle, isDark)
+        else CardStyleManager.getCardStyle(event.backgroundId, uiStyle, isDark)
     }
 
     if (isGlass) {
@@ -126,15 +138,16 @@ fun EventItem(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            shape = RoundedCornerShape(20.dp),
+            shape = Shape.large,
             containerColor = MaterialTheme.colorScheme.surface,
             title = {
-                Text("确认删除", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                Text("删除纪念日", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             },
             text = {
                 Text(
-                    "确定要删除纪念日「${event.eventName}」吗？",
+                    "确定要删除「${event.eventName}」吗？此操作无法撤销。",
                     fontSize = 15.sp,
+                    lineHeight = 21.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
@@ -155,7 +168,15 @@ fun EventItem(
     }
 }
 
-/** A · 最初方案：满幅彩色渐变 + 白字 */
+/**
+ * A · 渐变卡片。
+ *
+ * 视觉层次（从后到前）：
+ * 1. 主渐变底
+ * 2. 右上角柔光（radialGradient，营造体积感）
+ * 3. 顶部高光条（模拟光照）
+ * 4. 内容层
+ */
 @Composable
 private fun GradientEventCard(
     event: Event,
@@ -174,43 +195,76 @@ private fun GradientEventCard(
     onDrag: ((Offset) -> Unit)?,
     modifier: Modifier
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = Shape.medium
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(118.dp)
+            .heightIn(min = Sizes.cardMinHeight)
             .scale(if (isCurrentlyDragging) 1.03f else 1f)
             .then(modifier),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isCurrentlyDragging) 10.dp else 0.dp
+            defaultElevation = if (isCurrentlyDragging) 12.dp else 2.dp
         ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .background(brush = cardStyle.gradientBrush, shape = shape)
                 .clip(shape)
         ) {
+            // 右上角柔光：让纯渐变有体积感
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .align(Alignment.TopEnd)
+                    .size(140.dp)
+                    .offset(x = 40.dp, y = (-40).dp)
                     .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.18f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.06f)
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.28f),
+                                Color.Transparent
                             )
                         )
                     )
             )
+            // 左下角暗角：加深层次
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .size(120.dp)
+                    .offset(x = (-30).dp, y = 30.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.14f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+            // 顶部高光
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.White.copy(alpha = 0.35f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                    .fillMaxWidth()
+                    .padding(horizontal = Space.lg, vertical = Space.md),
+                verticalArrangement = Arrangement.spacedBy(Space.sm)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -227,20 +281,22 @@ private fun GradientEventCard(
                             overflow = TextOverflow.Ellipsis,
                             letterSpacing = (-0.3).sp
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        val parts = dateDisplayText.split(" · ")
+                        Spacer(modifier = Modifier.height(Space.xs))
                         Text(
-                            text = if (parts.size == 2) "${parts[0]} ${parts[1]}" else dateDisplayText,
+                            text = dateDisplayText,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = cardStyle.secondaryText,
-                            letterSpacing = (-0.08).sp
+                            letterSpacing = 0.1.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(modifier = Modifier.width(Space.md))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         DaysBlock(label, days, cardStyle, gradient = true)
                         if (isDragMode) {
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(Space.sm))
                             DragHandle(
                                 tint = cardStyle.textColor.copy(alpha = 0.75f),
                                 isDragMode = isDragMode,
@@ -256,33 +312,20 @@ private fun GradientEventCard(
                 if (!isDragMode) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            onClick = onEdit,
-                            shape = CircleShape,
-                            color = Color.White.copy(alpha = 0.22f),
-                            contentColor = Color.White
-                        ) {
-                            Icon(
-                                Icons.Default.Edit,
-                                "编辑",
-                                modifier = Modifier.padding(8.dp).size(16.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Surface(
-                            onClick = onDeleteRequest,
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.18f),
-                            contentColor = Color.White
-                        ) {
-                            Icon(
-                                Icons.Default.Delete,
-                                "删除",
-                                modifier = Modifier.padding(8.dp).size(16.dp)
-                            )
-                        }
+                        GlassActionButton(
+                            icon = Icons.Default.Edit,
+                            description = "编辑",
+                            onClick = onEdit
+                        )
+                        Spacer(modifier = Modifier.width(Space.sm))
+                        GlassActionButton(
+                            icon = Icons.Default.Delete,
+                            description = "删除",
+                            onClick = onDeleteRequest
+                        )
                     }
                 }
             }
@@ -290,7 +333,9 @@ private fun GradientEventCard(
     }
 }
 
-/** B · 玻璃：白卡 + 细边 + 极淡色洗 */
+/**
+ * B · 玻璃卡片：白底 + 顶部色洗 + 左侧色条 + 右侧光晕。
+ */
 @Composable
 private fun GlassEventCard(
     event: Event,
@@ -309,61 +354,69 @@ private fun GlassEventCard(
     onDrag: ((Offset) -> Unit)?,
     modifier: Modifier
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = Shape.medium
+    val isDark = LocalDarkTheme.current
+    val cardBg = if (isDark) MaterialTheme.colorScheme.surface else Color.White
+    val borderColor = if (isDark) MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                      else Color(0xFFEDEFF3)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(108.dp)
+            .heightIn(min = Sizes.cardMinHeight)
             .scale(if (isCurrentlyDragging) 1.015f else 1f)
             .then(modifier),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrentlyDragging) 8.dp else 1.dp),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .clip(shape)
-                .background(Color.White)
-                .border(1.dp, Color(0xFFE8EAEE), shape)
+                .background(cardBg)
+                .border(1.dp, borderColor, shape)
         ) {
+            // 顶部色洗
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
-                    .background(
-                        Brush.verticalGradient(listOf(cardStyle.wash, Color.White))
-                    )
+                    .height(52.dp)
+                    .background(Brush.verticalGradient(listOf(cardStyle.wash, cardBg)))
             )
+            // 右侧光晕
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(96.dp)
-                    .offset(x = 36.dp)
+                    .size(110.dp)
+                    .offset(x = 40.dp)
                     .background(
                         Brush.radialGradient(
-                            listOf(cardStyle.glow.copy(alpha = 0.45f), Color.Transparent)
+                            listOf(cardStyle.glow.copy(alpha = 0.35f), Color.Transparent)
                         )
                     )
             )
+            // 左侧色条
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(3.dp)
                     .fillMaxHeight()
-                    .padding(vertical = 14.dp)
+                    .padding(vertical = Space.md)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(cardStyle.accent.copy(alpha = 0.75f))
+                    .background(cardStyle.accent.copy(alpha = 0.8f))
             )
             Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 18.dp, end = 14.dp, top = 14.dp, bottom = 12.dp),
+                    .fillMaxWidth()
+                    .padding(start = Space.lg, end = Space.md, top = Space.md, bottom = Space.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
-                    modifier = Modifier.weight(1f).padding(end = 10.dp),
-                    verticalArrangement = Arrangement.Center
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = Space.md),
+                    verticalArrangement = Arrangement.spacedBy(Space.xs)
                 ) {
                     Text(
                         text = event.eventName,
@@ -371,49 +424,43 @@ private fun GlassEventCard(
                         fontWeight = FontWeight.SemiBold,
                         color = cardStyle.textColor,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = (-0.2).sp
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val parts = dateDisplayText.split(" · ")
                     Text(
-                        text = if (parts.size == 2) "${parts[0]} ${parts[1]}" else dateDisplayText,
+                        text = dateDisplayText,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = cardStyle.secondaryText
+                        color = cardStyle.secondaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (!isDragMode) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Surface(
-                                onClick = onEdit,
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFFF2F3F6),
-                                contentColor = Color(0xFF5C5C60)
-                            ) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    "编辑",
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).size(14.dp)
-                                )
-                            }
-                            Surface(
-                                onClick = onDeleteRequest,
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFFFDF2F2),
-                                contentColor = Color(0xFFD0605E)
-                            ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    "删除",
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).size(14.dp)
-                                )
-                            }
+                        Spacer(modifier = Modifier.height(Space.xxs))
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                            SoftActionButton(
+                                icon = Icons.Default.Edit,
+                                description = "编辑",
+                                container = if (isDark) MaterialTheme.colorScheme.surfaceVariant
+                                            else Color(0xFFF3F4F7),
+                                contentColor = if (isDark) MaterialTheme.colorScheme.onSurfaceVariant
+                                               else Color(0xFF5C5C62),
+                                onClick = onEdit
+                            )
+                            SoftActionButton(
+                                icon = Icons.Default.Delete,
+                                description = "删除",
+                                container = if (isDark) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+                                            else Color(0xFFFDF2F2),
+                                contentColor = MaterialTheme.colorScheme.error,
+                                onClick = onDeleteRequest
+                            )
                         }
                     }
                 }
                 DaysBlock(label, days, cardStyle, gradient = false)
                 if (isDragMode) {
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(Space.sm))
                     DragHandle(
                         tint = cardStyle.secondaryText,
                         isDragMode = isDragMode,
@@ -429,6 +476,69 @@ private fun GlassEventCard(
     }
 }
 
+/** 渐变卡上的半透明操作按钮 */
+@Composable
+private fun GlassActionButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(Shape.small)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = Shape.tiny,
+            color = Color.White.copy(alpha = 0.22f),
+            contentColor = Color.White
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                modifier = Modifier
+                    .padding(horizontal = Space.sm, vertical = Space.xs)
+                    .size(14.dp)
+            )
+        }
+    }
+}
+
+/** 白卡上的浅底操作按钮 */
+@Composable
+private fun SoftActionButton(
+    icon: ImageVector,
+    description: String,
+    container: Color,
+    contentColor: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(Shape.small)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(shape = Shape.tiny, color = container, contentColor = contentColor) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                modifier = Modifier
+                    .padding(horizontal = Space.sm, vertical = Space.xs)
+                    .size(14.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 右侧倒计时块。
+ *
+ * 大数字用负字距收紧，视觉更精致；单位小字压低对比。
+ */
 @Composable
 private fun DaysBlock(
     label: String,
@@ -442,22 +552,20 @@ private fun DaysBlock(
             if (gradient) {
                 Text(
                     text = "今天",
-                    fontSize = 22.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = cardStyle.textColor
+                    color = cardStyle.textColor,
+                    letterSpacing = (-0.6).sp
                 )
             } else {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = Shape.small,
                     color = cardStyle.wash,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        cardStyle.accent.copy(alpha = 0.22f)
-                    )
+                    border = BorderStroke(1.dp, cardStyle.accent.copy(alpha = 0.25f))
                 ) {
                     Text(
                         text = "今天",
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = Space.md, vertical = Space.sm),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = cardStyle.accent
@@ -468,9 +576,10 @@ private fun DaysBlock(
         label.contains("明天") || label.contains("昨天") -> {
             Text(
                 text = label,
-                fontSize = if (gradient) 18.sp else 16.sp,
+                fontSize = if (gradient) 19.sp else 16.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (gradient) cardStyle.textColor else cardStyle.accent
+                color = if (gradient) cardStyle.textColor else cardStyle.accent,
+                letterSpacing = (-0.3).sp
             )
         }
         label.contains("年") -> {
@@ -486,16 +595,17 @@ private fun DaysBlock(
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = kotlin.math.abs(days).toString(),
-                    fontSize = if (gradient) 28.sp else 32.sp,
+                    fontSize = if (gradient) 30.sp else 32.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (gradient) cardStyle.textColor else cardStyle.textColor,
-                    letterSpacing = (-0.5).sp
+                    color = cardStyle.textColor,
+                    letterSpacing = (-1).sp
                 )
                 Text(
                     text = if (label.startsWith("还有")) "天后" else "天前",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
-                    color = cardStyle.secondaryText
+                    color = cardStyle.secondaryText,
+                    letterSpacing = 0.3.sp
                 )
             }
         }
@@ -512,34 +622,41 @@ private fun DragHandle(
     onDragEnd: (() -> Unit)?,
     onDrag: ((Offset) -> Unit)?
 ) {
-    Icon(
-        imageVector = Icons.Default.Menu,
-        contentDescription = "拖拽",
-        tint = tint,
+    Box(
         modifier = Modifier
-            .size(22.dp)
-            .pointerInput(isDragMode, dragIndex) {
-                if (isDragMode) {
-                    detectDragGestures(
-                        onDragStart = {
-                            onDraggingChange(true)
-                            onDragStart?.invoke()
-                        },
-                        onDragEnd = {
-                            onDraggingChange(false)
-                            onDragEnd?.invoke()
-                        },
-                        onDragCancel = {
-                            onDraggingChange(false)
-                            onDragEnd?.invoke()
-                        },
-                        onDrag = { change, _ ->
-                            onDrag?.invoke(Offset(0f, change.position.y))
-                        }
-                    )
+            .size(40.dp)
+            .clip(CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Menu,
+            contentDescription = "拖拽",
+            tint = tint,
+            modifier = Modifier
+                .size(Space.iconMd)
+                .pointerInput(isDragMode, dragIndex) {
+                    if (isDragMode) {
+                        detectDragGestures(
+                            onDragStart = {
+                                onDraggingChange(true)
+                                onDragStart?.invoke()
+                            },
+                            onDragEnd = {
+                                onDraggingChange(false)
+                                onDragEnd?.invoke()
+                            },
+                            onDragCancel = {
+                                onDraggingChange(false)
+                                onDragEnd?.invoke()
+                            },
+                            onDrag = { change, _ ->
+                                onDrag?.invoke(Offset(0f, change.position.y))
+                            }
+                        )
+                    }
                 }
-            }
-    )
+        )
+    }
 }
 
 /**

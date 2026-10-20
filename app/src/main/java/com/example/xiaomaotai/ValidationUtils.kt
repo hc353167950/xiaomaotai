@@ -1,66 +1,73 @@
 package com.example.xiaomaotai
 
+/**
+ * 输入校验：只保留纯本地功能需要的内容。
+ * 账号/邮箱相关校验随账号系统一并移除。
+ */
 object ValidationUtils {
 
-    // 校验账号（英文、数字，6-20位）
-    fun validateUsername(username: String): ValidationResult {
-        if (username.isEmpty()) {
-            return ValidationResult(false, "用户名不能为空")
-        }
-        if (username.length < 6 || username.length > 20) {
-            return ValidationResult(false, "用户名长度必须在6-20位之间")
-        }
-        if (!username.matches(Regex("^[a-zA-Z0-9]+$"))) {
-            return ValidationResult(false, "用户名只能包含英文和数字")
-        }
-        return ValidationResult(true, "")
-    }
-
-    // 校验密码（6-20位英文数字，不能与账号相同）
-    fun validatePassword(password: String, account: String = ""): ValidationResult {
-        if (password.isEmpty()) {
-            return ValidationResult(false, "密码不能为空")
-        }
-        if (password.length < 6 || password.length > 20) {
-            return ValidationResult(false, "密码长度必须在6-20位之间")
-        }
-        if (!password.matches(Regex("^[a-zA-Z0-9]+$"))) {
-            return ValidationResult(false, "密码只能包含英文和数字")
-        }
-        if (password == account) {
-            return ValidationResult(false, "密码不能与账号相同")
-        }
-        return ValidationResult(true, "")
-    }
-
-    // 校验昵称（不能为空，最多10个字符）
-    fun validateNickname(nickname: String): ValidationResult {
-        if (nickname.isEmpty()) {
-            return ValidationResult(false, "昵称不能为空")
-        }
-        if (nickname.length > 10) {
-            return ValidationResult(false, "昵称不能超过10个字符")
-        }
-        return ValidationResult(true, "")
-    }
-
-    // 校验邮箱
-    fun validateEmail(email: String): ValidationResult {
-        if (email.isEmpty()) {
-            return ValidationResult(false, "邮箱不能为空")
-        }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            return ValidationResult(false, "请输入正确的邮箱格式")
-        }
-        return ValidationResult(true, "")
-    }
-
-    // 校验纪念日名称
+    /** 校验纪念日名称 */
     fun validateEventName(eventName: String?): ValidationResult {
         if (eventName.isNullOrEmpty()) {
             return ValidationResult(false, "事件名称不能为空")
         }
+        if (eventName.length > 10) {
+            return ValidationResult(false, "事件名称不能超过10个字符")
+        }
         return ValidationResult(true, "")
+    }
+
+    /**
+     * 校验事件日期字符串是否可解析且真实存在。
+     *
+     * 农历日期会真实转换一次（`Lunar(year, signedMonth, day)`），
+     * 因此「闰月不存在」「农历三十遇到小月」这类非法组合会被拦下，
+     * 不会等到倒计时阶段才发现。
+     */
+    fun validateEventDate(eventDate: String): ValidationResult {
+        val parsed = DateParser.parse(eventDate)
+            ?: return ValidationResult(false, "日期格式无效")
+
+        // 农历：做一次真实转换，确认年月日组合存在
+        if (parsed.type == DateParser.DateType.LUNAR && parsed.year != null) {
+            val ok = LunarCalendarHelper.isValidLunarDate(
+                lunarYear = parsed.year,
+                lunarMonth = parsed.month,
+                lunarDay = parsed.day,
+                isLeap = parsed.isLeapMonth
+            )
+            if (!ok) {
+                val label = "农历${LunarCalendarHelper.getLunarMonthName(parsed.month, parsed.isLeapMonth)}" +
+                    LunarCalendarHelper.getLunarDayName(parsed.day)
+                return ValidationResult(false, "该农历日期不存在：${parsed.year}年$label")
+            }
+        }
+
+        // 公历：LocalDate.of 会校验月日合法性
+        if (parsed.type == DateParser.DateType.SOLAR) {
+            val year = parsed.year
+            if (year == null ||
+                !isValidSolarDate(year, parsed.month, parsed.day)
+            ) {
+                return ValidationResult(false, "该公历日期不存在")
+            }
+        }
+
+        // 忽略年份格式：只校验月日范围（2月29日按 2月28日处理，属合法输入）
+        if (parsed.type == DateParser.DateType.MONTH_DAY) {
+            if (!isValidSolarDate(2024, parsed.month, parsed.day)) {
+                return ValidationResult(false, "该日期不存在")
+            }
+        }
+
+        return ValidationResult(true, "")
+    }
+
+    private fun isValidSolarDate(year: Int, month: Int, day: Int): Boolean = try {
+        java.time.LocalDate.of(year, month, day)
+        true
+    } catch (e: Exception) {
+        false
     }
 }
 

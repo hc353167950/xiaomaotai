@@ -20,7 +20,17 @@ import java.util.Date
 data class Countdown(
     val days: Long,          // 距离下一次纪念日的天数（>= 0）
     val label: String,       // 统一显示文案："就是今天" / "明天" / "还有N天"
-    val nextDate: LocalDate  // 下一次纪念日对应的公历日期
+    val nextDate: LocalDate, // 下一次纪念日对应的公历日期
+    /**
+     * 该事件在「本次循环周期」内的全部纪念日日期，按时间升序。
+     *
+     * 农历闰月年的「六月十六」会出现两次（普通六月十六 + 闰六月十六），
+     * 这两个日期都会列入，供提醒调度各设一套闹钟。非闰月年通常只有一个。
+     * 公历事件恒为一个。
+     */
+    val occurrences: List<LocalDate> = listOf(nextDate),
+    /** 最近这一次是否命中闰月那天（用于文案区分「闰六月十六」） */
+    val isLeapOccurrence: Boolean = false
 ) {
 
     /** 供仍以 java.util.Date 工作的调用方（AlarmManager 相关）换取旧类型 */
@@ -29,6 +39,8 @@ data class Countdown(
 
     companion object {
 
+        /** 农历顺延搜索失败时的哨兵值（不再用 365 伪装成合法天数） */
+        const val INVALID_DAYS = Long.MAX_VALUE
         /**
          * 计算事件的倒计时。
          * @param eventDate 事件日期字符串（yyyy-MM-dd / MM-dd / lunar:... 四种格式）
@@ -38,16 +50,46 @@ data class Countdown(
         fun of(eventDate: String, today: LocalDate = LocalDate.now()): Countdown? {
             val parsed = DateParser.parse(eventDate) ?: return null
 
-            val days = when (parsed.type) {
-                DateParser.DateType.LUNAR -> lunarDaysUntil(parsed, today)
-                DateParser.DateType.LUNAR_MONTH_DAY -> lunarMonthDayDaysUntil(parsed, today)
-                DateParser.DateType.SOLAR, DateParser.DateType.MONTH_DAY -> solarDaysUntil(parsed, today)
+            // 农历走候选模型：闰月年可能有两个日期（普通月 + 闰月）
+            if (parsed.type == DateParser.DateType.LUNAR ||
+                parsed.type == DateParser.DateType.LUNAR_MONTH_DAY
+            ) {
+                val next = LunarCalendarHelper.nextOccurrence(
+                    eventYear = parsed.year,
+                    eventMonth = parsed.month,
+                    eventDay = parsed.day,
+                    isEventLeap = parsed.isLeapMonth,
+                    currentDate = today
+                ) ?: return null
+
+                // 本年全部候选（含闰月那天），用于给每个日期各设一套提醒
+                val cycleYear = LunarCalendarHelper.currentLunarYear(next.date)
+                val candidates = LunarCalendarHelper.candidatesForYear(
+                    lunarYear = cycleYear,
+                    eventMonth = parsed.month,
+                    eventDay = parsed.day,
+                    isEventLeap = parsed.isLeapMonth
+                ).filter { !it.isBefore(today) }
+
+                return Countdown(
+                    days = next.days,
+                    label = labelFor(next.days),
+                    nextDate = next.date,
+                    occurrences = if (candidates.isEmpty()) listOf(next.date) else candidates,
+                    isLeapOccurrence = next.isLeapHit
+                )
             }
 
+            // 公历：单一日期
+            val days = solarDaysUntil(parsed, today)
+            if (days == INVALID_DAYS) return null
+            val nextDate = today.plusDays(days)
             return Countdown(
                 days = days,
                 label = labelFor(days),
-                nextDate = today.plusDays(days)
+                nextDate = nextDate,
+                occurrences = listOf(nextDate),
+                isLeapOccurrence = false
             )
         }
 
@@ -90,28 +132,6 @@ data class Countdown(
             }
         }
 
-        /** 农历事件（带年份）的循环倒计时，闰月顺序交由 LunarCalendarHelper 统一处理 */
-        private fun lunarDaysUntil(parsed: DateParser.ParsedDate, today: LocalDate): Long {
-            // 未指定年份时使用当前农历年份（农历腊月可能对应下一个公历年，不能直接用公历年）
-            val eventYear = parsed.year ?: currentLunarYear(today)
-            return LunarCalendarHelper.calculateLunarCountdown(
-                eventYear, parsed.month, parsed.day, parsed.isLeapMonth, today
-            )
-        }
-
-        /** 忽略年份的农历事件：以当前农历年为基准循环计算 */
-        private fun lunarMonthDayDaysUntil(parsed: DateParser.ParsedDate, today: LocalDate): Long {
-            return LunarCalendarHelper.calculateLunarCountdown(
-                currentLunarYear(today), parsed.month, parsed.day, parsed.isLeapMonth, today
-            )
-        }
-
-        /** 当前公历日期对应的农历年份，转换失败时退回公历年份 */
-        private fun currentLunarYear(today: LocalDate): Int = try {
-            com.nlf.calendar.Solar(today.year, today.monthValue, today.dayOfMonth).lunar.year
-        } catch (e: Exception) {
-            today.year
-        }
 
         /** 2月29日在非闰年降级为2月28日 */
         private fun safeFebruaryDay(year: Int, month: Int, day: Int): Int =

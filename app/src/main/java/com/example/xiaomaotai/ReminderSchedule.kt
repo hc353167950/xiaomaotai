@@ -2,6 +2,7 @@ package com.example.xiaomaotai
 
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 
 /**
  * 提醒时刻表：整个应用中"什么时候提醒、提醒什么内容"的唯一来源。
@@ -41,11 +42,15 @@ object ReminderSchedule {
 
     /**
      * 一次待触发的提醒：事件在 [triggerAt] 时刻按 [daysBefore] 档位提醒。
+     *
+     * [anniversary] 是该提醒所服务的那个纪念日本身（闰月年会有两个不同的值，
+     * 例如普通六月十六与闰六月十六），用于生成互不冲突的闹钟 requestCode。
      */
     data class Occurrence(
         val daysBefore: Int,
         val hour: Int,
-        val triggerAt: LocalDateTime
+        val triggerAt: LocalDateTime,
+        val anniversary: LocalDate
     ) {
         val label: String get() = labelFor(daysBefore)
     }
@@ -53,7 +58,10 @@ object ReminderSchedule {
     /**
      * 计算事件全部提醒时刻。
      *
-     * 以 [Countdown] 的下一次纪念日为锚点，展开各档位×各时刻；
+     * 以 [Countdown.occurrences] 里的**每一个**纪念日日期为锚点，展开各档位×各时刻。
+     * 农历闰月年的「六月十六」会有两个日期（普通月 + 闰月），因此会生成两整套提醒
+     * —— 用户一年过两次这个纪念日，两次都要提醒。
+     *
      * 只返回 [now] 之后的时刻（唯一例外：事件距今恰好等于档位天数时，
      * 已过时刻折算为立即提醒——保持"当天中午添加当天事件仍会提醒"的行为）。
      *
@@ -61,18 +69,29 @@ object ReminderSchedule {
      */
     fun occurrencesFor(eventDate: String, now: LocalDateTime): List<Occurrence> {
         val countdown = Countdown.of(eventDate, now.toLocalDate()) ?: return emptyList()
-        val anniversary: LocalDate = countdown.nextDate
+        val anniversaries = countdown.occurrences.ifEmpty { listOf(countdown.nextDate) }
 
         val result = mutableListOf<Occurrence>()
-        OFFSETS.forEach { daysBefore ->
-            hoursFor(daysBefore).forEachIndexed { hourIndex, hour ->
-                val scheduled = anniversary.minusDays(daysBefore.toLong()).atTime(hour, 0)
-                when {
-                    scheduled.isAfter(now) -> result.add(Occurrence(daysBefore, hour, scheduled))
-                    // 事件距今恰好 daysBefore 天且时刻已过：30秒后立即补提醒（错峰避免同时弹出）
-                    countdown.days == daysBefore.toLong() ->
-                        result.add(Occurrence(daysBefore, hour, now.plusSeconds(30L + hourIndex * 10)))
-                    // 其余已过时刻直接跳过
+        anniversaries.forEachIndexed { anniversaryIndex, anniversary ->
+            OFFSETS.forEach { daysBefore ->
+                hoursFor(daysBefore).forEachIndexed { hourIndex, hour ->
+                    val scheduled = anniversary.minusDays(daysBefore.toLong()).atTime(hour, 0)
+                    when {
+                        scheduled.isAfter(now) ->
+                            result.add(Occurrence(daysBefore, hour, scheduled, anniversary))
+                        // 该纪念日距今恰好 daysBefore 天且时刻已过：30秒后立即补提醒
+                        // 错峰：按纪念日序号与时刻序号错开，避免多个提醒同时弹出
+                        ChronoUnit.DAYS.between(now.toLocalDate(), anniversary) == daysBefore.toLong() ->
+                            result.add(
+                                Occurrence(
+                                    daysBefore,
+                                    hour,
+                                    now.plusSeconds(30L + anniversaryIndex * 20L + hourIndex * 5L),
+                                    anniversary
+                                )
+                            )
+                        // 其余已过时刻直接跳过
+                    }
                 }
             }
         }
@@ -82,19 +101,29 @@ object ReminderSchedule {
     /**
      * 轮询路径（常驻服务每15分钟检查）用的判定：当前时刻附近是否有档位到期。
      *
+     * 同时检查所有候选纪念日，闰月年的第二个日期同样能被识别。
+     *
      * @param windowMinutes 允许的时间窗口（分钟），轮询间隔内的提醒不被漏掉
-     * @return 到期的 (daysBefore, hour) 列表，可能为空
+     * @return 到期的 Occurrence 列表，可能为空
      */
     fun dueNow(eventDate: String, now: LocalDateTime, windowMinutes: Long = 15): List<Occurrence> {
         val countdown = Countdown.of(eventDate, now.toLocalDate()) ?: return emptyList()
+        val anniversaries = countdown.occurrences.ifEmpty { listOf(countdown.nextDate) }
 
-        val daysBefore = countdown.days
-        if (daysBefore !in OFFSETS.map { it.toLong() }) return emptyList()
+        val result = mutableListOf<Occurrence>()
+        anniversaries.forEach { anniversary ->
+            val daysBefore = ChronoUnit.DAYS.between(now.toLocalDate(), anniversary)
+            if (daysBefore !in OFFSETS.map { it.toLong() }) return@forEach
 
-        return hoursFor(daysBefore.toInt()).mapNotNull { hour ->
-            val scheduled = now.toLocalDate().atTime(hour, 0)
-            val diffMinutes = java.time.Duration.between(scheduled, now).abs().toMinutes()
-            if (diffMinutes <= windowMinutes) Occurrence(daysBefore.toInt(), hour, scheduled) else null
+            hoursFor(daysBefore.toInt()).forEach { hour ->
+                val scheduled = now.toLocalDate().atTime(hour, 0)
+                val diffMinutes = java.time.Duration.between(scheduled, now).abs().toMinutes()
+                if (diffMinutes <= windowMinutes) {
+                    result.add(Occurrence(daysBefore.toInt(), hour, scheduled, anniversary))
+                }
+            }
         }
+        return result
     }
+
 }

@@ -18,8 +18,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
+import com.example.xiaomaotai.ui.theme.Shape
+import com.example.xiaomaotai.ui.theme.Space
 @Composable
-fun GlobalLoadingDialog() {
+fun GlobalLoadingDialog(message: String = "加载中") {
     Dialog(
         onDismissRequest = { },
         properties = DialogProperties(
@@ -36,29 +38,31 @@ fun GlobalLoadingDialog() {
             contentAlignment = Alignment.Center
         ) {
             Card(
-                modifier = Modifier.size(128.dp),
-                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.wrapContentSize(),
+                shape = Shape.large,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .padding(horizontal = Space.xxl, vertical = Space.xl),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(30.dp),
+                        modifier = Modifier.size(26.dp),
                         strokeWidth = 2.5.dp,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(Space.md))
                     Text(
-                        text = "加载中",
+                        text = message,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
                     )
                 }
             }

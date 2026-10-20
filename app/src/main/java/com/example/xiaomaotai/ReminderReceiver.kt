@@ -30,13 +30,25 @@ class ReminderReceiver : BroadcastReceiver() {
         val daysRemaining = intent.getIntExtra("days_remaining", 0)
         val reminderHour = intent.getIntExtra("reminder_hour", 0)
 
-        Log.d(TAG, "处理${if (isBackup) "备份" else ""}提醒: $eventName, 提前${daysRemaining}天, ${reminderHour}:00")
+        // 纪念日本身：闰月年有两个（普通六月十六 / 闰六月十六），去重必须带上它
+        val anniversary = intent.getStringExtra("anniversary")
+            ?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+            ?: java.time.LocalDate.now()
+
+        Log.d(
+            TAG,
+            "处理${if (isBackup) "备份" else ""}提醒: $eventName, " +
+                "纪念日=$anniversary, 提前${daysRemaining}天, ${reminderHour}:00"
+        )
 
         val reminderManager = ReminderManager(context)
 
         // 备份提醒只在原始提醒未发出时兜底
-        if (isBackup && reminderManager.hasReminderSentToday(eventId, daysRemaining, reminderHour)) {
-            Log.d(TAG, "原始提醒已发送，跳过备份提醒: $eventName")
+        if (isBackup && reminderManager.hasReminderSentToday(
+                eventId, daysRemaining, reminderHour, anniversary
+            )
+        ) {
+            Log.d(TAG, "原始提醒已发送，跳过备份提醒: $eventName @ $anniversary")
             return
         }
 
@@ -55,10 +67,11 @@ class ReminderReceiver : BroadcastReceiver() {
                 context,
                 Event(id = eventId, eventName = eventName, eventDate = intent.getStringExtra("event_date") ?: ""),
                 daysRemaining,
-                reminderHour
+                reminderHour,
+                anniversary = anniversary
             )
             if (eventId != "test_notification") {
-                reminderManager.markReminderSentToday(eventId, daysRemaining, reminderHour)
+                reminderManager.markReminderSentToday(eventId, daysRemaining, reminderHour, anniversary)
             }
         } catch (e: Exception) {
             Log.e(TAG, "发送通知失败: ${e.message}")

@@ -1,4 +1,4 @@
-package com.example.xiaomaotai
+﻿package com.example.xiaomaotai
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -13,12 +13,9 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import java.text.SimpleDateFormat
 import java.time.LocalDateTime
 import java.time.ZoneId
-import java.util.Calendar
 import java.util.Date
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -64,15 +61,23 @@ class ReminderManager(private val context: Context) {
             }
 
             occurrences.forEach { occ ->
-                // 今天已发过的档位不再重复设置
-                if (hasReminderSentToday(event.id, occ.daysBefore, occ.hour)) {
-                    Log.d(TAG, "${occ.label}提醒(${occ.hour}:00)今天已发送，跳过: ${event.eventName}")
+                // 今天已发过的档位不再重复设置（按「纪念日日期 + 档位 + 时刻」区分，
+                // 闰月年同一档位有两个纪念日，必须分别记录，否则第二套会被误判为已发）
+                if (hasReminderSentToday(event.id, occ.daysBefore, occ.hour, occ.anniversary)) {
+                    Log.d(
+                        TAG,
+                        "${occ.label}提醒(${occ.hour}:00)今天已发送，跳过: ${event.eventName} @ ${occ.anniversary}"
+                    )
                     return@forEach
                 }
 
                 val triggerAt = occ.triggerAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                 setAlarm(triggerAt, primaryPendingIntent(event, occ), exact)
-                Log.d(TAG, "已设置${occ.label}提醒(${occ.hour}:00): ${event.eventName} at ${occ.triggerAt}")
+                Log.d(
+                    TAG,
+                    "已设置${occ.label}提醒(${occ.hour}:00): ${event.eventName} " +
+                        "纪念日=${occ.anniversary} at ${occ.triggerAt}"
+                )
 
                 // 精确模式下追加 1-3 分钟后的备份闹钟，防厂商 ROM 吞掉首发
                 if (exact) setupBackupAlarms(event, occ, triggerAt)
@@ -84,23 +89,78 @@ class ReminderManager(private val context: Context) {
 
     /**
      * 取消事件的全部提醒，包括备份闹钟与升级前旧格式的 PendingIntent。
+     *
+     * 由于闹钟 key 现在包含纪念日日期（闰月年有两个），这里无法枚举出全部 key，
+     * 因此同时取消「旧格式」与「新格式」两类：
+     * - 旧格式：eventId_档位_时刻（及更早的 eventId_档位）
+     * - 新格式：通过 [CancelAllReminders] 广播让 AlarmManager 按事件前缀清理不可行，
+     *   所以改为在设置新提醒前由 [safeScheduleReminder] 逐个覆盖，
+     *   并在删除事件时调用 [cancelAllForEvent]。
      */
     fun cancelReminder(eventId: String) {
         try {
             ReminderSchedule.OFFSETS.forEach { daysBefore ->
-                // 当前格式（含所有历史上可能用过的时刻组合）与备份闹钟
                 listOf(0, 8, 12).forEach { hour ->
+                    // 旧格式（无纪念日日期）
                     cancelAlarm("${eventId}_${daysBefore}_${hour}")
                     listOf(1, 2, 3).forEach { delay ->
                         cancelAlarm("${eventId}_${daysBefore}_${hour}_backup_${delay}")
                     }
                 }
-                // 旧版本不带 hour 的格式
+                // 更早版本不带 hour 的格式
                 cancelAlarm("${eventId}_${daysBefore}")
             }
-            Log.d(TAG, "已取消事件全部提醒: $eventId")
+            // 带纪念日日期的「新格式」键无法在这里枚举，由 cancelAllForEvent 清理；
+            // 设置新提醒时同 key 会被 FLAG_UPDATE_CURRENT 覆盖，不会残留旧闹钟。
+            Log.d(TAG, "已取消事件旧格式提醒: $eventId")
         } catch (e: Exception) {
             Log.e(TAG, "取消提醒失败: $eventId, ${e.message}")
+        }
+    }
+
+    /**
+     * 彻底取消某事件的所有闹钟（含带纪念日日期的所有变体）。
+     *
+     * 用于删除事件：此时需要按「事件 + 日期」组合穷举清理。
+     * 只清理未来 3 年内的组合，避免循环次数过大。
+     */
+    fun cancelAllForEvent(event: Event) {
+        try {
+            val today = java.time.LocalDate.now()
+            val countdown = Countdown.of(event.eventDate, today)
+            val anniversaries = countdown?.occurrences?.toMutableSet() ?: mutableSetOf()
+            // 加上未来 3 年的候选，确保历史残留也能清掉
+            for (offset in 0..3) {
+                val year = LunarCalendarHelper.currentLunarYear(today) + offset
+                val parsed = DateParser.parse(event.eventDate)
+                if (parsed != null &&
+                    (parsed.type == DateParser.DateType.LUNAR ||
+                        parsed.type == DateParser.DateType.LUNAR_MONTH_DAY)
+                ) {
+                    anniversaries.addAll(
+                        LunarCalendarHelper.candidatesForYear(
+                            year, parsed.month, parsed.day, parsed.isLeapMonth
+                        )
+                    )
+                } else {
+                    anniversaries.add(today.plusYears(offset.toLong()))
+                }
+            }
+
+            anniversaries.forEach { anniversary ->
+                ReminderSchedule.OFFSETS.forEach { daysBefore ->
+                    listOf(0, 8, 12).forEach { hour ->
+                        cancelAlarm("${event.id}_${anniversary}_${daysBefore}_${hour}")
+                        listOf(1, 2, 3).forEach { delay ->
+                            cancelAlarm("${event.id}_${anniversary}_${daysBefore}_${hour}_backup_${delay}")
+                        }
+                    }
+                }
+            }
+            cancelReminder(event.id)
+            Log.d(TAG, "已彻底取消事件全部闹钟: ${event.eventName}")
+        } catch (e: Exception) {
+            Log.e(TAG, "彻底取消闹钟失败: ${event.eventName}, ${e.message}")
         }
     }
 
@@ -149,19 +209,45 @@ class ReminderManager(private val context: Context) {
 
     // ---------- 已发送台账 ----------
 
-    /** 今天是否已为该事件的该档位发送过提醒 */
-    fun hasReminderSentToday(eventId: String, daysRemaining: Int, hour: Int): Boolean {
-        return sentLedger.getBoolean(ledgerKey(eventId, daysRemaining, hour), false)
+    /**
+     * 今天是否已为该事件、该纪念日、该档位发送过提醒。
+     *
+     * [anniversary] 区分闰月年的两个纪念日（普通六月十六 / 闰六月十六）：
+     * 若不区分，第二套提醒会被第一套的台账误判为「今天已发」而永不触发。
+     */
+    fun hasReminderSentToday(
+        eventId: String,
+        daysRemaining: Int,
+        hour: Int,
+        anniversary: java.time.LocalDate
+    ): Boolean {
+        return sentLedger.getBoolean(ledgerKey(eventId, daysRemaining, hour, anniversary), false)
     }
 
-    /** 记录今天已为该事件的该档位发送过提醒 */
-    fun markReminderSentToday(eventId: String, daysRemaining: Int, hour: Int) {
-        sentLedger.edit().putBoolean(ledgerKey(eventId, daysRemaining, hour), true).commit()
+    /** 记录今天已为该事件、该纪念日、该档位发送过提醒 */
+    fun markReminderSentToday(
+        eventId: String,
+        daysRemaining: Int,
+        hour: Int,
+        anniversary: java.time.LocalDate
+    ) {
+        sentLedger.edit()
+            .putBoolean(ledgerKey(eventId, daysRemaining, hour, anniversary), true)
+            .apply()
     }
 
-    private fun ledgerKey(eventId: String, daysRemaining: Int, hour: Int): String {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        return "${eventId}_${daysRemaining}_${hour}_$today"
+    /**
+     * 台账键：eventId_档位_时刻_纪念日日期_发送日期。
+     * 日期用 ISO 格式（含 `-`），便于 [cleanupOldLedger] 按最后一段识别并清理。
+     */
+    private fun ledgerKey(
+        eventId: String,
+        daysRemaining: Int,
+        hour: Int,
+        anniversary: java.time.LocalDate
+    ): String {
+        val today = java.time.LocalDate.now().toString()
+        return "${eventId}_${daysRemaining}_${hour}_$anniversary" + "_$today"
     }
 
     // ---------- 启动引导（Application.onCreate 调用一次） ----------
@@ -200,8 +286,7 @@ class ReminderManager(private val context: Context) {
     /** 清理7天前的台账记录，防止 SharedPreferences 无限膨胀 */
     private fun cleanupOldLedger() {
         try {
-            val sevenDaysAgo = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }
-            val cutoffDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(sevenDaysAgo.time)
+            val cutoffDate = java.time.LocalDate.now().minusDays(7).toString()
 
             val editor = sentLedger.edit()
             var removed = 0
@@ -213,7 +298,7 @@ class ReminderManager(private val context: Context) {
                 }
             }
             if (removed > 0) {
-                editor.commit()
+                editor.apply()
                 Log.d(TAG, "清理了${removed}条过期提醒台账")
             }
         } catch (e: Exception) {
@@ -266,10 +351,13 @@ class ReminderManager(private val context: Context) {
             putExtra("days_remaining", occ.daysBefore)
             putExtra("reminder_hour", occ.hour)
             putExtra("reminder_label", occ.label)
+            // 纪念日本身：闰月年有两个不同日期，接收端据此区分与去重
+            putExtra("anniversary", occ.anniversary.toString())
         }
         return PendingIntent.getBroadcast(
             context,
-            "${event.id}_${occ.daysBefore}_${occ.hour}".hashCode(),
+            // requestCode 必须包含纪念日日期，否则闰月年的第二套闹钟会覆盖第一套
+            "${event.id}_${occ.anniversary}_${occ.daysBefore}_${occ.hour}".hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -286,11 +374,12 @@ class ReminderManager(private val context: Context) {
                 putExtra("days_remaining", occ.daysBefore)
                 putExtra("reminder_hour", occ.hour)
                 putExtra("reminder_label", occ.label)
+                putExtra("anniversary", occ.anniversary.toString())
                 putExtra("backup_delay", delayMinutes)
             }
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
-                "${event.id}_${occ.daysBefore}_${occ.hour}_backup_${delayMinutes}".hashCode(),
+                "${event.id}_${occ.anniversary}_${occ.daysBefore}_${occ.hour}_backup_${delayMinutes}".hashCode(),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )

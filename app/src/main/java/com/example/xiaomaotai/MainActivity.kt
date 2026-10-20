@@ -1,4 +1,4 @@
-package com.example.xiaomaotai
+﻿package com.example.xiaomaotai
 
 import android.Manifest
 import android.app.Activity
@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -33,7 +34,9 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,7 +60,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.xiaomaotai.ui.theme.XiaoMaoTaiTheme
-import com.example.xiaomaotai.ui.components.ForgotPasswordScreen
+import com.example.xiaomaotai.ui.theme.Space
+import com.example.xiaomaotai.ui.theme.Shape
+import com.example.xiaomaotai.ui.theme.Sizes
 import com.example.xiaomaotai.ui.components.ProfileScreen
 import com.example.xiaomaotai.ui.components.EventItem
 import com.example.xiaomaotai.ui.components.EventDialog
@@ -70,7 +75,6 @@ import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
@@ -153,7 +157,8 @@ class MainActivity : ComponentActivity() {
 
                 MainApp(
                     events = app.events,
-                    account = app.account,
+                    webDavSync = app.webDavSync,
+                    webDavCredentials = app.webDavCredentials,
                     settings = app.settings,
                     uiStyleId = uiStyleId,
                     onUiStyleChange = { id ->
@@ -303,18 +308,16 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp(
     events: EventStore,
-    account: Account,
+    webDavSync: WebDavSync,
+    webDavCredentials: WebDavCredentials,
     settings: AppSettings,
     uiStyleId: String = "soft_diary",
     onUiStyleChange: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
-    var currentUser by remember { mutableStateOf<User?>(null) }
-    var showOfflineMessage by remember { mutableStateOf(true) }
     var showNotificationPrompt by remember { mutableStateOf(false) }
     var showExactAlarmPermissionDialog by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf("home") }
-    var forgotPasswordSource by remember { mutableStateOf("login") } // 跟踪忘记密码页面的来源
     var refreshKey by remember { mutableStateOf(0) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
 
@@ -353,8 +356,6 @@ fun MainApp(
     }
 
     LaunchedEffect(Unit) {
-        currentUser = account.getCurrentUser()
-
         // 检查是否需要显示通知权限提示
         if (!hasNotificationPermission() && settings.shouldShowNotificationPrompt()) {
             showNotificationPrompt = true
@@ -394,7 +395,7 @@ fun MainApp(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(58.dp)
+                                .height(Sizes.bottomBar)
                                 .navigationBarsPadding(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
@@ -422,7 +423,6 @@ fun MainApp(
             "home" -> HomeScreen(
                 eventStore = events,
                 settings = settings,
-                loginState = account.isLoggedIn(),
                 modifier = Modifier.padding(paddingValues),
                 onNavigateToSort = { events ->
                     sortScreenEvents = events // 保存事件列表
@@ -431,27 +431,11 @@ fun MainApp(
                 refreshKey = refreshKey
             )
             "profile" -> ProfileScreen(
-                account = account,
-                currentUser = currentUser,
-                onLogin = { user ->
-                    currentUser = user
-                },
-                onLogout = {
-                    account.logout()
-                    currentUser = null
-                },
-                onNavigateToForgotPassword = {
-                    forgotPasswordSource = "profile"
-                    currentScreen = "forgot_password"
-                },
+                eventStore = events,
+                credentials = webDavCredentials,
+                sync = webDavSync,
                 onNavigateToSettings = {
                     currentScreen = "settings"
-                },
-                onNavigateToLogin = {
-                    currentScreen = "login"
-                },
-                onNavigateToRegister = {
-                    currentScreen = "register"
                 },
                 onBack = {
                     // 我的页面返回手势应该退出到桌面，不处理返回事件让系统处理
@@ -464,64 +448,6 @@ fun MainApp(
                 uiStyleId = uiStyleId,
                 onUiStyleChange = onUiStyleChange
             )
-            "forgot_password" -> ForgotPasswordScreen(
-                account = account,
-                onBack = {
-                    currentScreen = forgotPasswordSource
-                },
-                onResetSuccess = {
-                    currentScreen = forgotPasswordSource
-                }
-            )
-            "login" -> {
-                // 独立的登录页面路由 - 使用ProfileScreen内部的LoginScreen
-                ProfileScreen(
-                    account = account,
-                    currentUser = null,
-                    onLogin = { user ->
-                        currentUser = user
-                        currentScreen = "profile"
-                    },
-                    onLogout = { },
-                    onNavigateToForgotPassword = {
-                        forgotPasswordSource = "login"
-                        currentScreen = "forgot_password"
-                    },
-                    onNavigateToSettings = {
-                        currentScreen = "settings"
-                    },
-                    onNavigateToLogin = { },
-                    onNavigateToRegister = {
-                        currentScreen = "register"
-                    },
-                    onBack = {
-                        currentScreen = "profile"
-                    }
-                )
-            }
-            "register" -> {
-                // 独立的注册页面路由 - 使用ProfileScreen内部的RegisterScreen
-                ProfileScreen(
-                    account = account,
-                    currentUser = null,
-                    onLogin = { user ->
-                        currentUser = user
-                        currentScreen = "profile"
-                    },
-                    onLogout = { },
-                    onNavigateToForgotPassword = { },
-                    onNavigateToSettings = {
-                        currentScreen = "settings"
-                    },
-                    onNavigateToLogin = {
-                        currentScreen = "login"
-                    },
-                    onNavigateToRegister = { },
-                    onBack = {
-                        currentScreen = "profile"
-                    }
-                )
-            }
             "sort" -> {
                 SortScreen(
                     eventStore = events,
@@ -551,18 +477,22 @@ fun MainApp(
                 modifier = Modifier
                     .padding(bottom = 96.dp)
                     .wrapContentSize(),
-                shape = RoundedCornerShape(20.dp),
+                shape = Shape.small,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.92f)
+                    containerColor = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.94f)
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Text(
-                    text = "再次返回退出到桌面",
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    text = "再按一次返回键退出",
+                    modifier = Modifier.padding(
+                        horizontal = Space.xl,
+                        vertical = Space.md
+                    ),
                     color = MaterialTheme.colorScheme.inverseOnSurface,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = (-0.1).sp
                 )
             }
         }
@@ -597,39 +527,51 @@ fun ExactAlarmPermissionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(20.dp),
+        shape = Shape.large,
         containerColor = MaterialTheme.colorScheme.surface,
         title = {
-            Text(
-                text = "开启精确提醒权限",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 17.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 图标徽标：让权限请求不那么生硬
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .padding(Space.sm)
+                            .size(Space.iconMd)
+                    )
+                }
+                Spacer(modifier = Modifier.width(Space.md))
+                Text(
+                    text = "开启精确提醒",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    letterSpacing = (-0.3).sp
+                )
+            }
         },
         text = {
             Column {
                 Text(
-                    text = "为了确保纪念日提醒能够准时送达，即使在APP退出后也能正常工作，需要开启以下权限：",
-                    fontSize = 15.sp,
+                    text = "为了让纪念日提醒准时送达（即使 App 已退出），需要开启以下权限：",
+                    fontSize = 14.sp,
                     lineHeight = 21.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(Space.md))
+                PermissionHint("精确闹钟", "确保提醒准时触发")
+                Spacer(modifier = Modifier.height(Space.sm))
+                PermissionHint("电池优化白名单", "防止系统清理后台提醒")
+                Spacer(modifier = Modifier.height(Space.md))
                 Text(
-                    text = "• 精确闹钟权限 — 确保提醒准时触发",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "• 电池优化白名单 — 防止系统杀死提醒功能",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "点击「去设置」将跳转到系统设置页面进行授权。",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "点击「去设置」将跳转到系统页面授权。",
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                 )
             }
         },
@@ -638,26 +580,55 @@ fun ExactAlarmPermissionDialog(
                 Text(
                     text = "去设置",
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp
                 )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(
-                    text = "稍后设置",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "稍后",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 15.sp
                 )
             }
         }
     )
 }
 
+/** 权限说明单行：左侧圆点 + 标题 + 灰色说明 */
+@Composable
+private fun PermissionHint(title: String, desc: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            modifier = Modifier
+                .padding(top = 7.dp)
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        Spacer(modifier = Modifier.width(Space.sm))
+        Column {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = desc,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 @Composable
 fun HomeScreen(
     eventStore: EventStore,
-    settings: AppSettings,
-    loginState: Boolean,
     modifier: Modifier = Modifier,
     onNavigateToSort: (List<Event>) -> Unit, // 修改为传递事件列表
     refreshKey: Int
@@ -665,9 +636,7 @@ fun HomeScreen(
     var events by remember { mutableStateOf<List<Event>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf("home") }
-    var currentUser by remember { mutableStateOf<User?>(null) }
     var internalRefreshKey by remember { mutableStateOf(0) }
-    var forgotPasswordSource by remember { mutableStateOf("profile") }
     var showNotificationPrompt by remember { mutableStateOf(false) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
     var dragSortEvents by remember { mutableStateOf<List<Event>>(emptyList()) }
@@ -742,73 +711,11 @@ fun HomeScreen(
      * 判断事件今年的日期是否已过（仅用于显示排序，不修改数据库）
      */
     fun isEventPassedThisYear(eventDate: String, today: java.time.LocalDate): Boolean {
-        return try {
-            when {
-                // 农历事件：计算距离下次的天数
-                eventDate.startsWith("lunar:") -> {
-                    val lunarDatePart = eventDate.removePrefix("lunar:")
-                    val daysBetween = when {
-                        lunarDatePart.contains("-L") -> {
-                            val parts = lunarDatePart.split("-")
-                            if (parts.size >= 3) {
-                                val year = parts[0].toInt()
-                                val monthPart = parts[1]
-                                val lunarDay = parts[2].toInt()
-                                val actualMonth = monthPart.substring(1).toInt()
-                                LunarCalendarHelper.calculateLunarCountdown(year, actualMonth, lunarDay, true, today)
-                            } else 1L
-                        }
-                        lunarDatePart.contains("--") -> {
-                            val corrected = lunarDatePart.replace("--", "-")
-                            val parts = corrected.split("-")
-                            if (parts.size >= 3) {
-                                val year = parts[0].toInt()
-                                val lunarMonth = parts[1].toInt()
-                                val lunarDay = parts[2].toInt()
-                                LunarCalendarHelper.calculateLunarCountdown(year, lunarMonth, lunarDay, true, today)
-                            } else 1L
-                        }
-                        else -> {
-                            val parts = lunarDatePart.split("-")
-                            if (parts.size >= 3) {
-                                val year = parts[0].toInt()
-                                val lunarMonth = parts[1].toInt()
-                                val lunarDay = parts[2].toInt()
-                                LunarCalendarHelper.calculateLunarCountdown(year, lunarMonth, lunarDay, false, today)
-                            } else 1L
-                        }
-                    }
-                    // 距离下次超过200天，说明刚过去不久
-                    daysBetween > 200
-                }
-                // 月-日格式：检查今年的这个日期是否已过
-                eventDate.matches(Regex("\\d{2}-\\d{2}")) -> {
-                    val parts = eventDate.split("-")
-                    if (parts.size >= 2) {
-                        val month = parts[0].toInt()
-                        val day = parts[1].toInt()
-                        val thisYearDate = java.time.LocalDate.of(today.year, month, day)
-                        // 今年的日期已过（包括昨天和今天之前）
-                        thisYearDate.isBefore(today)
-                    } else false
-                }
-                // 标准格式 yyyy-MM-dd：检查今年的这个日期是否已过
-                eventDate.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> {
-                    val parts = eventDate.split("-")
-                    if (parts.size >= 3) {
-                        val month = parts[1].toInt()
-                        val day = parts[2].toInt()
-                        val thisYearDate = java.time.LocalDate.of(today.year, month, day)
-                        // 今年的日期已过（包括昨天和今天之前）
-                        thisYearDate.isBefore(today)
-                    } else false
-                }
-                else -> false
-            }
-        } catch (e: Exception) {
-            Log.e("HomeScreen", "Error checking if event passed: $eventDate", e)
-            false
-        }
+        // 委托给 Countdown 深模块，不再在这里手写日期解析分支。
+        // 旧实现自己 split 字符串，闰月/非法日期会与 Countdown 的判断不一致。
+        val countdown = Countdown.of(eventDate, today) ?: return false
+        // 距离下一次超过 200 天，说明本年的纪念日刚过去不久
+        return countdown.days > 200
     }
 
     // 手势返回处理：仅在需要拦截时启用，其他情况交给上层(MainApp)的双击退出逻辑
@@ -838,7 +745,7 @@ fun HomeScreen(
 
     // 数据加载 - 智能排序：根据设置决定是否将过期事件移到末尾（仅在内存中排序，不修改数据库）
     // 监听 internalRefreshKey 确保从后台恢复时也能刷新数据
-    LaunchedEffect(loginState, eventStore, refreshKey, internalRefreshKey) {
+    LaunchedEffect(eventStore, refreshKey, internalRefreshKey) {
         scope.launch {
             isLoading = true
             try {
@@ -865,35 +772,30 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 顶部固定：缩小后的标题 + 按钮 + 搜索
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.background,
-                shadowElevation = 0.dp,
-                tonalElevation = 0.dp
+            // 顶部固定区：标题 + 操作 + 搜索
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding()
+                    .padding(horizontal = Space.screenH)
+                    .padding(bottom = Space.xs)
             ) {
-                Column(
-                    modifier = Modifier
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 4.dp)
-                ) {
-                    HomeListHeader(
-                        searchQuery = searchQuery,
-                        onSearchQueryChange = { searchQuery = it },
-                        eventsNotEmpty = events.isNotEmpty(),
-                        onSortClick = {
-                            val eventsWithDays = events.map { event ->
-                                val days = com.example.xiaomaotai.ui.components
-                                    .calculateDaysAfter(event.eventDate).second
-                                event.copy(cachedDays = days)
-                            }
-                            onNavigateToSort(eventsWithDays)
-                        },
-                        onDeleteAllClick = { showDeleteAllConfirm = true },
-                        onAddClick = { showAddDialog = true }
-                    )
-                }
+                HomeListHeader(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    eventsNotEmpty = events.isNotEmpty(),
+                    onSortClick = {
+                        val eventsWithDays = events.map { event ->
+                            val days = com.example.xiaomaotai.ui.components
+                                .calculateDaysAfter(event.eventDate).second
+                            event.copy(cachedDays = days)
+                        }
+                        onNavigateToSort(eventsWithDays)
+                    },
+                    onDeleteAllClick = { showDeleteAllConfirm = true },
+                    onAddClick = { showAddDialog = true }
+                )
             }
 
             // 内容区
@@ -901,8 +803,8 @@ fun HomeScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 8.dp, bottom = 8.dp)
+                    .padding(horizontal = Space.screenH)
+                    .padding(top = Space.sm, bottom = Space.sm)
             ) {
             // 根据模式显示不同界面
             if (isDragSortMode) {
@@ -1071,7 +973,7 @@ fun HomeScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(Space.lg))
 
                     // 拖拽卡片列表
                     val dragListState = rememberLazyListState()
@@ -1107,46 +1009,10 @@ fun HomeScreen(
                 // 主界面内容区域
                 Box(modifier = Modifier.weight(1f)) {
                     if (filteredEvents.isEmpty() && !isLoading) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(horizontal = 32.dp)
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(22.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    tonalElevation = 0.dp
-                                ) {
-                                    Icon(
-                                        imageVector = if (searchQuery.isNotEmpty())
-                                            Icons.Default.Search else Icons.Default.Star,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                        modifier = Modifier
-                                            .padding(18.dp)
-                                            .size(30.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = if (searchQuery.isNotEmpty()) "未找到相关纪念日" else "暂无纪念日",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = if (searchQuery.isNotEmpty())
-                                        "试试其他关键词" else "轻点右上角 + 添加第一个纪念日",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
+                        EmptyState(
+                            isSearch = searchQuery.isNotEmpty(),
+                            onAddClick = { showAddDialog = true }
+                        )
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -1244,15 +1110,37 @@ fun HomeScreen(
             if (showDeleteAllConfirm) {
                 AlertDialog(
                     onDismissRequest = { showDeleteAllConfirm = false },
-                    shape = RoundedCornerShape(20.dp),
+                    shape = Shape.large,
                     containerColor = MaterialTheme.colorScheme.surface,
                     title = {
-                        Text("确认删除", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .padding(Space.sm)
+                                        .size(Space.iconMd)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(Space.md))
+                            Text(
+                                text = "删除全部纪念日",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                letterSpacing = (-0.3).sp
+                            )
+                        }
                     },
                     text = {
                         Text(
-                            "确定要删除全部 ${events.size} 个纪念日吗？此操作不可撤销。",
-                            fontSize = 15.sp,
+                            "将删除全部 ${events.size} 个纪念日，此操作无法撤销。",
+                            fontSize = 14.sp,
+                            lineHeight = 21.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
@@ -1276,12 +1164,21 @@ fun HomeScreen(
                                 }
                             }
                         ) {
-                            Text("删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "全部删除",
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp
+                            )
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showDeleteAllConfirm = false }) {
-                            Text("取消", color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "取消",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 15.sp
+                            )
                         }
                     }
                 )
@@ -1306,7 +1203,7 @@ private fun HomeListHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp, bottom = 2.dp)
+            .padding(top = Space.sm, bottom = Space.xs)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1316,96 +1213,75 @@ private fun HomeListHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "纪念日",
-                    fontSize = 22.sp,
+                    fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    letterSpacing = 0.15.sp
+                    letterSpacing = (-0.9).sp
                 )
+                Spacer(modifier = Modifier.height(Space.xs))
                 Text(
-                    text = "记录生活中的重要时刻",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "记住每一个重要的日子",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 0.2.sp
                 )
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(Space.sm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (eventsNotEmpty) {
-                    Surface(
-                        onClick = onSortClick,
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shadowElevation = 0.dp
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "拖拽排序",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .padding(7.dp)
-                                .size(16.dp)
-                        )
-                    }
-                    Surface(
-                        onClick = onDeleteAllClick,
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        shadowElevation = 0.dp
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "删除所有",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .padding(7.dp)
-                                .size(16.dp)
-                        )
-                    }
-                }
-                Surface(
-                    onClick = onAddClick,
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    shadowElevation = 0.dp
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "添加纪念日",
-                        tint = Color.White,
-                        modifier = Modifier
-                            .padding(7.dp)
-                            .size(16.dp)
+                    HeaderIconButton(
+                        icon = Icons.Default.SwapVert,
+                        contentDescription = "拖拽排序",
+                        container = MaterialTheme.colorScheme.surfaceVariant,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        onClick = onSortClick
+                    )
+                    HeaderIconButton(
+                        icon = Icons.Default.Delete,
+                        contentDescription = "删除所有",
+                        container = MaterialTheme.colorScheme.errorContainer,
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = onDeleteAllClick
                     )
                 }
+                HeaderIconButton(
+                    icon = Icons.Default.Add,
+                    contentDescription = "添加纪念日",
+                    container = MaterialTheme.colorScheme.primary,
+                    tint = Color.White,
+                    onClick = onAddClick
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(Space.md))
 
+        // 搜索框：44dp 高度，内边距与图标比例协调
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(34.dp),
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shadowElevation = 0.dp
+                .height(Sizes.searchHeight),
+            shape = Shape.small,
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 1.dp
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = Space.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = "搜索",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(Space.iconSm)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(Space.sm))
                 androidx.compose.foundation.text.BasicTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
@@ -1413,7 +1289,8 @@ private fun HomeListHeader(
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = 15.sp,
+                        letterSpacing = (-0.2).sp
                     ),
                     decorationBox = { innerTextField ->
                         Box(
@@ -1422,9 +1299,10 @@ private fun HomeListHeader(
                         ) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "搜索",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 14.sp
+                                    text = "搜索纪念日",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    fontSize = 15.sp,
+                                    letterSpacing = (-0.2).sp
                                 )
                             }
                             innerTextField()
@@ -1432,15 +1310,20 @@ private fun HomeListHeader(
                     }
                 )
                 if (searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onSearchQueryChange("") },
-                        modifier = Modifier.size(20.dp)
+                    Spacer(modifier = Modifier.width(Space.xs))
+                    // 清除按钮保留 32dp 可点区，视觉图标仍小
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(Shape.tiny)
+                            .clickable { onSearchQueryChange("") },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "清除",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
@@ -1448,6 +1331,42 @@ private fun HomeListHeader(
         }
     }
 }
+
+/**
+ * 顶栏图标按钮：视觉 38dp，但外层留足 48dp 触控区。
+ */
+@Composable
+private fun HeaderIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    container: Color,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(Space.MinTouchTarget)
+            .clip(Shape.small)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = Shape.tiny,
+            color = container,
+            shadowElevation = 0.dp
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier
+                    .padding(Space.sm)
+                    .size(Space.iconSm)
+            )
+        }
+    }
+}
+
 
 /**
  * 自定义底部导航项组件
@@ -1470,9 +1389,11 @@ fun CustomNavigationItem(
 
     Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
+            // 48dp 最小触控区，视觉上仍是紧凑的图标+文字
+            .heightIn(min = Space.MinTouchTarget)
+            .clip(Shape.small)
             .clickable(onClick = onClick)
-            .padding(horizontal = 28.dp, vertical = 6.dp),
+            .padding(horizontal = Space.xxl, vertical = Space.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -1480,15 +1401,116 @@ fun CustomNavigationItem(
             imageVector = icon,
             contentDescription = label,
             tint = tint,
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(Space.iconLg)
         )
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(Space.xxs))
         Text(
             text = label,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             color = tint,
             letterSpacing = 0.1.sp
         )
+    }
+}
+
+/**
+ * 空状态。
+ *
+ * 视觉：柔光圆形图标底 + 主标题 + 副标题 + 主行动按钮。
+ * 有搜索词时不显示按钮（避免与"清空搜索"混淆）。
+ */
+@Composable
+private fun EmptyState(
+    isSearch: Boolean,
+    onAddClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Space.huge)
+                .padding(bottom = Space.huge)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .background(
+                            Brush.radialGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp
+                ) {
+                    Icon(
+                        imageVector = if (isSearch) Icons.Default.SearchOff else Icons.Default.EventNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .padding(Space.xl)
+                            .size(30.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(Space.xxl))
+
+            Text(
+                text = if (isSearch) "没有找到" else "开始记录",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                letterSpacing = (-0.3).sp
+            )
+
+            Spacer(modifier = Modifier.height(Space.sm))
+
+            Text(
+                text = if (isSearch)
+                    "换个关键词，或检查是否有错别字"
+                else
+                    "生日、纪念日、约定……\n把值得记住的日子都放在这里",
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            if (!isSearch) {
+                Spacer(modifier = Modifier.height(Space.xxl))
+                Button(
+                    onClick = onAddClick,
+                    shape = Shape.small,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                    contentPadding = PaddingValues(
+                        horizontal = Space.xl,
+                        vertical = Space.md
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(Space.iconSm)
+                    )
+                    Spacer(modifier = Modifier.width(Space.sm))
+                    Text("添加第一个纪念日", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
     }
 }

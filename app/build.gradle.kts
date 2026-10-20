@@ -12,22 +12,10 @@ android {
         applicationId = "com.example.xiaomaotai"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "2.0.0"
+        versionCode = 7
+        versionName = "3.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // NDK配置
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
-    }
-
-    // CMake配置
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
+        // 无 NDK 需求：原 native-secrets（SMTP 凭据）已随账号系统一并移除
     }
 
     signingConfigs {
@@ -60,6 +48,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     // JVM 单元测试中 android.util.Log 等桩方法返回默认值，避免 "not mocked" 崩溃
     testOptions {
@@ -72,16 +61,6 @@ android {
         resources.excludes.add("/META-INF/{AL2.0,LGPL2.1}")
         resources.excludes.add("META-INF/NOTICE.md")
         resources.excludes.add("META-INF/LICENSE.md")
-    }
-    
-    // 添加D8编译器优化配置
-    compileOptions {
-        isCoreLibraryDesugaringEnabled = true
-    }
-    
-    // 解决R8/D8编译问题
-    buildFeatures {
-        buildConfig = true
     }
 }
 
@@ -101,13 +80,16 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material3.windowSize)
 
-    // Supabase & Ktor (Updated Versions)
-    implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.gotrue)
-    implementation(libs.ktor.client.android)
+    // WebDAV：必须用 OkHttp 引擎（HttpURLConnection 不允许 PROPFIND/MKCOL）
+    implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.client.logging)
+
+    // WebDAV 凭据加密存储
+    implementation(libs.androidx.security.crypto)
+    // 扩展图标集（core 只有 30 多个图标，不够表达语义）
+    implementation("androidx.compose.material:material-icons-extended")
 
     // Kotlinx
     implementation(libs.kotlinx.coroutines.android)
@@ -116,11 +98,6 @@ dependencies {
     // Utility
     implementation(libs.gson)
     implementation(libs.lunar.java)
-    implementation(libs.calendar.compose)
-    
-    // 邮件发送
-    implementation("com.sun.mail:android-mail:1.6.7")
-    implementation("com.sun.mail:android-activation:1.6.7")
 
     // Desugaring
     coreLibraryDesugaring(libs.desugar.jdk.libs)
