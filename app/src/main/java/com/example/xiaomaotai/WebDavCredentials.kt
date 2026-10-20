@@ -34,11 +34,11 @@ class WebDavCredentials(context: Context) {
 
     var serverUrl: String
         get() = prefs.getString(KEY_URL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_URL, value.trim()).apply()
+        set(value) = prefs.edit().putString(KEY_URL, sanitizeUrl(value)).apply()
 
     var username: String
         get() = prefs.getString(KEY_USER, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_USER, value.trim()).apply()
+        set(value) = prefs.edit().putString(KEY_USER, sanitizeLine(value)).apply()
 
     var password: String
         get() = prefs.getString(KEY_PASS, "") ?: ""
@@ -57,5 +57,39 @@ class WebDavCredentials(context: Context) {
         private const val KEY_URL = "server_url"
         private const val KEY_USER = "username"
         private const val KEY_PASS = "password"
+
+        /**
+         * 清洗服务器地址。
+         *
+         * 用户从浏览器/网盘帮助页复制地址时，极易带上换行和多余内容，例如：
+         * ```
+         * https://soya.infini-cloud.net/dav/
+         * 353167950
+         * ```
+         * 这段文本若原样编码进 URL，换行符会变成 %0A，请求路径就成了
+         * /dav%0A353167950/ ，服务端一律 404/409 —— 表现为「上传失败」。
+         *
+         * 处理策略：
+         * 1. 去掉 BOM / 零宽字符 / 不换行空格；
+         * 2. 按任意空白与换行切开，只保留第一段（真正的 URL）；
+         * 3. 丢弃空结果。
+         */
+        fun sanitizeUrl(input: String): String {
+            val cleaned = input
+                .replace("\uFEFF", "")
+                .replace("\u200B", "")
+                .replace("\u00A0", " ")
+                .trim()
+
+            return cleaned
+                .split(Regex("[\\s\\r\\n]+"))
+                .firstOrNull { it.isNotBlank() }
+                ?.trim()
+                ?: ""
+        }
+
+        /** 单行文本清洗：去掉所有空白与控制字符（用户名不该含换行） */
+        fun sanitizeLine(input: String): String =
+            input.replace(Regex("[\\s\\r\\n\\u0000-\\u001F]"), "")
     }
 }

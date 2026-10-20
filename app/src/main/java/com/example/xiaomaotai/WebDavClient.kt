@@ -49,52 +49,37 @@ class WebDavClient(
     }
 
     /**
-     * 规范化 base URL：去掉尾部斜杠，并对路径部分逐段做 URL 编码。
+     * 规范化 base URL。
      *
-     * 主机与端口不编码（`https://host:8443` 里的冒号必须保留），
-     * 只编码 `/` 之后的路径段——服务器地址可能是 `.../dav/我的同步/` 这种中文目录。
+     * 关键点：
+     *
+     * 1. **只去首尾空白，绝不编码路径**。
+     *    用户填的地址是「已经合法的 URL」，随意 URLEncoder 会把
+     *    已经转义的 `%20` 二次编码成 `%2520`，也会把粘贴进来的换行变成 `%0A`。
+     *    路径段的转义由 Ktor 在发请求时处理。
+     *
+     * 2. **剔除换行与多余内容**（见 [WebDavCredentials.sanitizeUrl]）。
+     *    从网页复制地址时常常连带下一行文字，混进 URL 会变成
+     *    `/dav%0A353167950` 这种路径，服务端必然拒绝。
      */
     private fun base(): String {
-        val raw = serverUrl.trim().trimEnd('/')
-        val schemeEnd = raw.indexOf("://")
-        if (schemeEnd < 0) return raw
-
-        val prefix = raw.substring(0, schemeEnd + 3)
-        val rest = raw.substring(schemeEnd + 3)
-        val parts = rest.split('/')
-
-        val encoded = parts.mapIndexed { index, segment ->
-            if (index == 0 || segment.isEmpty()) segment
-            else java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
-        }.joinToString("/")
-
-        return prefix + encoded
+        val sanitized = WebDavCredentials.sanitizeUrl(serverUrl)
+        return sanitized.trimEnd('/')
     }
 
     /**
      * 拼接完整 URL。
      *
-     * 两个必须小心的点：
+     * **尾斜杠必须原样保留**：在 WebDAV 里 `dir/` 是目录、`dir` 是无扩展名文件，
+     * 是两个不同资源。早先用 split→join 展开路径时末尾空段被丢弃，
+     * MKCOL 请求因此丢了尾斜杠，服务端一律回 409「父目录不存在」。
      *
-     * 1. **尾斜杠必须原样保留**。`dir/` 和 `dir` 在 WebDAV 里是两个不同的资源：
-     *    前者表示目录，后者表示无扩展名的文件。早先用 split→join 展开路径，
-     *    末尾空段被 join 丢弃，导致 MKCOL 请求丢了尾斜杠，服务端一律回 409
-     *    「父目录不存在」——这正是这条路走不通的真正原因。
-     *
-     * 2. **逐段编码但保留分隔符**。服务器地址里可能有空格或中文
-     *    （如坚果云的 `/dav/我的同步/`），不编码会请求失败。
+     * 路径段本身不再手动编码——交给 Ktor/OkHttp 按 RFC 处理，
+     * 避免把已转义的内容二次编码。
      */
     private fun url(path: String): String {
         val trimmed = path.trimStart('/')
-        val endsWithSlash = trimmed.endsWith("/")
-        val encoded = trimmed
-            .split('/')
-            .filter { it.isNotEmpty() }
-            .joinToString("/") { segment ->
-                java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
-            }
-        val suffix = if (endsWithSlash && encoded.isNotEmpty()) "/" else ""
-        return "${base()}/$encoded$suffix"
+        return "${base()}/$trimmed"
     }
 
     /**
@@ -230,16 +215,42 @@ class WebDavClient(
         }
     }
 
-    /** 探测连接与认证是否可用（不关心文件是否存在） */
+    /**
+     * 探测连接与认证是否可用，并在失败时给出可操作的指引。
+     *
+     * 用 PROPFIND（Depth: 0）而不是裸 GET：WebDAV 服务端对 PROPFIND 才是标准响应，
+     * 拿到的 207/401 能真实反映「地址对不对、凭据通不通」。
+     */
     suspend fun testConnection(): Result<Unit> = runCatching {
-        val response = client.get(url("")) {
+        val target = url("")
+        Log.d(TAG, "测试连接: $target")
+
+        val response = client.request(target) {
+            method = HttpMethod("PROPFIND")
             header(HttpHeaders.Authorization, authHeader())
+            header("Depth", "0")
+            header(HttpHeaders.ContentLength, "0")
+            setBody(ByteArray(0))
         }
-        when {
-            response.status == HttpStatusCode.Unauthorized ->
-                throw WebDavException("认证失败，请检查用户名与密码")
-            response.status.value in 200..499 -> Unit
-            else -> throw WebDavException("连接失败 ${response.status.value}")
+
+        when (response.status.value) {
+            401 -> throw WebDavException(
+                "认证失败：用户名或密码不对。\n" +
+                    "InfiniCLOUD 请用「登录 ID」作账号，不是邮箱。\n请求地址：$target"
+            )
+            403 -> throw WebDavException(
+                "无权访问该目录。\n请确认该账号下此路径可写。\n请求地址：$target"
+            )
+            404 -> throw WebDavException(
+                "地址不存在，请检查路径是否填错。\n请求地址：$target"
+            )
+            405, 501 -> throw WebDavException(
+                "该地址不是 WebDAV 端点（服务端不支持 PROPFIND）。\n" +
+                    "InfiniCLOUD 应为 https://soya.infini-cloud.net/dav/\n请求地址：$target"
+            )
+        }
+        if (response.status.value !in 200..299) {
+            throw WebDavException("连接失败 ${response.status.value}\n请求地址：$target")
         }
     }
 

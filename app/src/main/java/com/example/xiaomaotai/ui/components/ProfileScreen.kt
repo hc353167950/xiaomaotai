@@ -141,9 +141,10 @@ fun WebDavScreen(
 
                     SyncTextField(
                         value = serverUrl,
-                        onValueChange = { serverUrl = it },
+                        // 粘贴时常带上换行与下一行文字，输入阶段就过滤掉
+                        onValueChange = { serverUrl = it.replace(Regex("[\\r\\n\\t]"), "") },
                         label = "服务器地址",
-                        placeholder = "https://dav.example.com/dav/",
+                        placeholder = "https://soya.infini-cloud.net/dav/",
                         keyboardType = KeyboardType.Uri
                     )
 
@@ -151,9 +152,9 @@ fun WebDavScreen(
 
                     SyncTextField(
                         value = username,
-                        onValueChange = { username = it },
-                        label = "用户名",
-                        placeholder = "登录 WebDAV 的账号",
+                        onValueChange = { username = it.replace(Regex("[\\r\\n\\t\\s]"), "") },
+                        label = "用户名 / 登录 ID",
+                        placeholder = "InfiniCLOUD 填数字 ID，不是邮箱",
                         keyboardType = KeyboardType.Text
                     )
 
@@ -162,8 +163,8 @@ fun WebDavScreen(
                     SyncTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = "密码 / 应用专用密码",
-                        placeholder = "坚果云 / infini-cloud 请填应用密码",
+                        label = "密码",
+                        placeholder = "InfiniCLOUD 填账号密码；坚果云填应用密码",
                         keyboardType = KeyboardType.Password,
                         visualTransformation = if (showPassword) VisualTransformation.None
                                                else PasswordVisualTransformation(),
