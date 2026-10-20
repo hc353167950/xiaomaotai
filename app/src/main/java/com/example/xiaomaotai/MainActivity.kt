@@ -629,6 +629,7 @@ private fun PermissionHint(title: String, desc: String) {
 @Composable
 fun HomeScreen(
     eventStore: EventStore,
+    settings: AppSettings,
     modifier: Modifier = Modifier,
     onNavigateToSort: (List<Event>) -> Unit, // 修改为传递事件列表
     refreshKey: Int

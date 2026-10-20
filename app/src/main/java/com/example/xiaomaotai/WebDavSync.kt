@@ -52,7 +52,7 @@ class WebDavSync(
             events = events
         )
         client.putText(FILE, gson.toJson(payload)).getOrThrow()
-        "已备份 ${events.size} 条纪念日到云端"
+        Result.success("已备份 ${events.size} 条纪念日到云端")
     }
 
     /**
@@ -74,7 +74,7 @@ class WebDavSync(
     /**
      * 预演合并：只读，不写入任何数据。供 UI 弹确认框用。
      */
-    suspend fun previewMerge(): Result<MergePlan> = withClient { client ->
+    suspend fun previewMerge(): Result<MergePlan> = withClientGeneric { client ->
         val raw = client.getText(FILE).getOrThrow()
         val local = eventStore.persistedEvents()
         val remote = if (raw == null) emptyList() else decodeEvents(raw).getOrThrow()

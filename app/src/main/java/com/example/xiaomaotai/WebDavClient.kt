@@ -102,7 +102,7 @@ class WebDavClient(
         }
         when {
             response.status == HttpStatusCode.NotFound -> null
-            response.status.isSuccess() -> response.bodyAsText()
+            response.status.value in 200..299 -> response.bodyAsText()
             response.status == HttpStatusCode.Unauthorized ->
                 throw WebDavException("认证失败，请检查用户名与密码")
             else -> throw WebDavException("读取失败 ${response.status.value}")

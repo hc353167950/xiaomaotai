@@ -70,3 +70,7 @@
 -dontwarn okio.**
 -keep class okhttp3.** { *; }
 -keep class okio.** { *; }
+
+# Tink (security-crypto) references errorprone annotations (compile-time only)
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
