@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.gson.Gson
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 /**
  * WebDAV 同步深模块：三个动词对应三个功能。
@@ -96,12 +97,28 @@ class WebDavSync(
         val raw = client.getText(FILE).getOrThrow()
             ?: return@withClient Result.failure(WebDavException("云端还没有备份文件"))
 
+        // 空备份保护：云端文件存在但解析出 0 条（损坏 / 被清空）时拒绝执行，
+        // 否则「恢复」会变成「清空本地」。
         val remote = decodeEvents(raw).getOrThrow()
+        if (remote.isEmpty()) {
+            throw WebDavException(
+                "云端备份里没有纪念日，已阻止恢复。\n" +
+                    "可能是备份文件损坏或为空，请先在云盘确认文件内容。"
+            )
+        }
+
         val localCount = eventStore.persistedEvents().size
         snapshotLocal(localCount)
 
-        eventStore.replaceAll(remote)
-        Result.success("已从云端恢复 ${remote.size} 条纪念日（覆盖前已保存本地快照）")
+        // 规范化：补 id（缺失/重复都重发新 id）、按日期补 eventType。
+        // 云端数据可能来自旧版本或另一台设备，直接写回会让 LazyColumn
+        // 因 key 重复而崩溃，或让类型与日期不一致。
+        val normalized = normalizeForRestore(remote)
+
+        eventStore.replaceAll(normalized)
+        Result.success(
+            "已从云端恢复 ${normalized.size} 条纪念日（覆盖前已保存本地快照）"
+        )
     }
 
     /**
@@ -150,33 +167,36 @@ class WebDavSync(
         val localKeys = local.map { mergeKey(it) }.toSet()
         val remoteKeys = remote.map { mergeKey(it) }.toSet()
 
-        // 本地优先：先放本地全部，再追加云端独有的
+        // 已占用的 id：本地现有 + 本批次已分配。
+        // 不加这层去重，云端事件会和本地事件撞 id，UI 的 key = { it.id } 直接崩。
+        val usedIds = local.map { it.id }.toMutableSet()
+
+        // 本地优先：先放本地全部，再追加云端独有的（补 id / 去重 / 补 eventType）
         val merged = mutableListOf<Event>()
         merged.addAll(local)
-        remote.forEach { r ->
-            if (mergeKey(r) !in localKeys) merged.add(r)
-        }
+        val incoming = remote.filter { mergeKey(it) !in localKeys }
+        merged.addAll(normalizeIncoming(incoming, usedIds))
 
-        // sortOrder 重新编号：按现有降序顺序映射为连续序号，避免两边序号打架
-        val normalized = merged
-            .sortedByDescending { it.sortOrder }
-            .mapIndexed { index, e -> e.copy(sortOrder = merged.size - 1 - index) }
+        // sortOrder 重新编号：**按模式分组各自连续编号**。
+        // 两个标签的排序互相独立，若混在一起编号，会打乱其中一组的相对顺序
+        // （首页两组各自按 sortOrder 排序，跨组的序号没有可比性）。
+        val renumbered = renumberPerMode(merged)
 
-        val addedFromRemote = remote.count { mergeKey(it) !in localKeys }
+        val addedFromRemote = incoming.size
         val keptLocalOnly = local.count { mergeKey(it) !in remoteKeys }
 
-        eventStore.replaceAll(normalized)
+        eventStore.replaceAll(renumbered)
 
         val payload = SyncPayload(
             version = PAYLOAD_VERSION,
             savedAt = nowIso(),
-            events = normalized
+            events = renumbered
         )
         client.putText(FILE, gson.toJson(payload)).getOrThrow()
 
         Result.success(
             "合并完成：本地 ${local.size} 条 + 云端新增 $addedFromRemote 条" +
-                " = ${normalized.size} 条（本地独有 $keptLocalOnly 条已上传）"
+                " = ${renumbered.size} 条（本地独有 $keptLocalOnly 条已上传）"
         )
     }
 
@@ -191,6 +211,68 @@ class WebDavSync(
     /** 合并判定键：名称 + 日期。同名同日期视为同一条纪念日 */
     private fun mergeKey(event: Event): String =
         "${event.eventName.trim()}\u0000${event.eventDate.trim()}"
+
+    /**
+     * 规范化一批来自云端的**新增**事件：
+     *
+     * 1. **id 缺失或与本地/批次内重复 → 重新分配**。
+     *    关键：UI 的 LazyColumn 用 `key = { it.id }`，重复 id 会直接抛
+     *    「Key was already used」并整页崩溃。云端数据可能来自旧版本（没有 id）
+     *    或另一台设备（id 与本地不同源），因此插入前必须去重。
+     * 2. **eventType 按日期自动补全**，避免旧数据里 eventType 与 eventDate 不一致。
+     * 3. **保留云端事件的 mode / note / reminder 等字段**——它们已经在
+     *    [EventJson] 里逐字段兜底过，这里只补 id 与类型。
+     *
+     * @param incoming 待插入的事件（来自云端）
+     * @param usedIds  已占用的 id（本地现有 + 本批次已分配）
+     */
+    private fun normalizeIncoming(
+        incoming: List<Event>,
+        usedIds: MutableSet<String>
+    ): List<Event> = incoming.map { event ->
+        val safeId = event.id.trim().ifBlank { UUID.randomUUID().toString() }
+        val finalId = if (safeId in usedIds) {
+            // 冲突：再生成一个，直到不重复
+            var candidate = UUID.randomUUID().toString()
+            while (candidate in usedIds) candidate = UUID.randomUUID().toString()
+            candidate
+        } else {
+            safeId
+        }
+        usedIds.add(finalId)
+        event.copy(id = finalId).withAutoDetectedType()
+    }
+
+    /**
+     * 整体规范化（恢复用）：保证 id 唯一且非空，并补齐 eventType。
+     * 恢复是「覆盖本地」，所以这批事件自己内部去重即可。
+     */
+    private fun normalizeForRestore(events: List<Event>): List<Event> {
+        val used = mutableSetOf<String>()
+        return normalizeIncoming(events, used)
+    }
+
+    /**
+     * 按模式分组重新编号 sortOrder，组内保持原有相对顺序。
+     *
+     * 为什么必须分组：首页两个标签各自独立排序（将至按天数升序、走过按天数降序，
+     * 关闭自动排序时按 sortOrder 降序），跨组的序号没有可比性。
+     * 合并时如果把两组混在一起连续编号，会让其中一组的相对顺序被打乱，
+     * 表现为「合并后某个标签的卡片顺序变了」。
+     *
+     * 编号策略：组内从高到低递减（与首页 sortOrder 降序展示一致），
+     * 两组各自使用相同的数值区间——因为展示时永远先按模式过滤，不会互相干扰。
+     */
+    private fun renumberPerMode(events: List<Event>): List<Event> {
+        return events
+            .groupBy { it.mode }
+            .flatMap { (_, group) ->
+                group.sortedByDescending { it.sortOrder }
+                    .mapIndexed { index, e ->
+                        e.copy(sortOrder = group.size - 1 - index)
+                    }
+            }
+    }
 
     /** 解析云端文件，兼容「裸数组」与「带外层包装」两种格式 */
     private fun decodeEvents(raw: String): Result<List<Event>> = runCatching {

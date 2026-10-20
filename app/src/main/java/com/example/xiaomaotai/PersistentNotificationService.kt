@@ -243,15 +243,25 @@ class PersistentNotificationService : Service() {
     /**
      * 最近的即将到来的事件（同一天可能有多个）。
      * 事件来源 [EventStore.persistedEvents]，天数来自 [Countdown]。
+     *
+     * **只统计「将至」模式**：常驻通知表达的是「下一个要到的纪念日」，
+     * 「走过」是持续累积的计数、没有「即将到来」这层语义。
+     * 此前把两者混在一起，会算出走过卡片的天数并显示它的事件名。
      */
     private fun getNextUpcomingEvents(): Pair<List<Event>, Long>? {
         return try {
             val allEvents = XiaoMaoTaiApp.eventStore(this).persistedEvents()
             if (allEvents.isEmpty()) return null
 
-            val withDays = allEvents.mapNotNull { event ->
-                Countdown.of(event.eventDate)?.let { event to it.days }
-            }.filter { it.second >= 0 }
+            val withDays = allEvents
+                .filter { it.mode == EventMode.COUNTDOWN }
+                .mapNotNull { event ->
+                    // 必须带 mode 计算：Countdown 对 COUNT_UP 会走另一套语义
+                    Countdown.of(event.eventDate, mode = event.mode)?.let { event to it.days }
+                }
+                .filter { it.second >= 0 }
+
+            if (withDays.isEmpty()) return null
 
             val minDays = withDays.minOfOrNull { it.second } ?: return null
             val nearest = withDays.filter { it.second == minDays }.map { it.first }

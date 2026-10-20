@@ -102,10 +102,15 @@ class EventStore(
     /**
      * 整体替换事件列表（WebDAV 恢复 / 合并结果写回用）。
      * 会重新补设提醒并刷新常驻通知。
+     *
+     * **id 兜底去重**：调用方（云端数据）可能带来重复或空 id，
+     * 而 UI 的 LazyColumn 用 `key = { it.id }`，重复 key 会直接崩溃。
+     * 这里作为储层最后一道防线再规范一次，保证落盘数据 id 一定唯一非空。
      */
     suspend fun replaceAll(events: List<Event>) {
-        commitList(events)
-        events.forEach { event ->
+        val safe = ensureUniqueIds(events)
+        commitList(safe)
+        safe.forEach { event ->
             try {
                 reminderManager.safeScheduleReminder(event)
             } catch (e: Exception) {
@@ -113,6 +118,32 @@ class EventStore(
             }
         }
         updatePersistentNotificationIfEnabled()
+    }
+
+    /** 保证 id 非空且唯一：冲突的就重新发一个 */
+    private fun ensureUniqueIds(events: List<Event>): List<Event> {
+        val used = mutableSetOf<String>()
+        var changed = false
+        val result = events.map { event ->
+            val raw = event.id.trim()
+            val id = when {
+                raw.isEmpty() -> {
+                    changed = true
+                    UUID.randomUUID().toString()
+                }
+                raw in used -> {
+                    changed = true
+                    var candidate = UUID.randomUUID().toString()
+                    while (candidate in used) candidate = UUID.randomUUID().toString()
+                    candidate
+                }
+                else -> raw
+            }
+            used.add(id)
+            if (id != event.id) event.copy(id = id) else event
+        }
+        if (changed) Log.w(TAG, "检测到重复/空 id，已重新分配（${events.size} 条）")
+        return result
     }
 
     // ---------- 生命周期 ----------
