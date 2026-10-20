@@ -184,60 +184,9 @@ fun SettingsHomeScreen(
             }
 
             Spacer(modifier = Modifier.height(Space.lg))
-
-            // ---------- 提醒时间：一行紧凑说明，不占高度 ----------
-            ReminderScheduleHint()
-
-            Spacer(modifier = Modifier.height(Space.md))
-
             // ---------- 通知测试按钮 ----------
+            // 提醒时刻说明已移到「添加纪念日」弹窗里，这里不再重复
             TestNotificationButton()
-        }
-    }
-}
-
-/**
- * 提醒时间说明：压成两行小字。
- *
- * 原来用「• 标题 + 子行」三组，占近 140dp；这里改成半透明底的一行摘要，
- * 具体时刻用分隔符连起来，只保留必要的刻度信息。
- */
-@Composable
-private fun ReminderScheduleHint() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                shape = Shape.small
-            )
-            .padding(horizontal = Space.md, vertical = Space.sm),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            imageVector = Icons.Default.NotificationsActive,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .padding(top = 1.dp)
-                .size(14.dp)
-        )
-        Spacer(modifier = Modifier.width(Space.sm))
-        Column {
-            Text(
-                text = "提前 7 天 / 1 天 08:00 · 当天 00:00 / 08:00 / 12:00",
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(Space.xxs))
-            Text(
-                text = "当天新增的纪念日会在 30 秒后立即提醒",
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
         }
     }
 }

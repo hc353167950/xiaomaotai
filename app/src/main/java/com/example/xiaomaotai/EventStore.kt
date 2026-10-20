@@ -131,18 +131,23 @@ class EventStore(
     }
 
     private fun persist(key: String, events: List<Event>) {
-        prefs.edit().putString(key, gson.toJson(events)).apply()
+        prefs.edit().putString(key, EventJson.encode(events)).apply()
     }
 
+    /**
+     * 读取事件列表。
+     *
+     * 解析统一走 [EventJson]，它会对缺失字段逐项兜底。
+     * 若用裸 Gson，旧数据里没有 `mode` / `reminderTone` 会被反序列化成 null，
+     * 渲染卡片时一访问就 NPE —— 表现是「升级后卡片全没了」。
+     */
     private fun loadFromPrefs(key: String): List<Event> {
         val json = prefs.getString(key, null) ?: return emptyList()
-        return try {
-            val type = object : com.google.gson.reflect.TypeToken<List<Event>>() {}.type
-            gson.fromJson<List<Event>>(json, type) ?: emptyList()
-        } catch (e: Exception) {
-            Log.e(TAG, "读取事件缓存失败($key): ${e.message}")
-            emptyList()
+        val events = EventJson.decodeList(json)
+        if (events.isEmpty() && json.isNotBlank() && json.trim() != "[]") {
+            Log.e(TAG, "事件缓存解析为空($key)，原始长度=${json.length}")
         }
+        return events
     }
 
     /**

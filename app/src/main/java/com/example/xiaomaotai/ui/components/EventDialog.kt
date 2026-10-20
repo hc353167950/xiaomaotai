@@ -171,11 +171,17 @@ fun EventDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(scrollState)
+                        .wrapContentHeight()
                         .imePadding()
-                        .padding(horizontal = Space.xl)
-                        .padding(bottom = Space.xxl)
                 ) {
+                    // ---------- 可滚动区域 ----------
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(scrollState)
+                            .padding(horizontal = Space.xl)
+                    ) {
                     // 顶部拖拽指示条
                     Box(
                         modifier = Modifier
@@ -409,10 +415,29 @@ fun EventDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(Space.xl))
+                    }   // ← 结束可滚动内容
 
-                    // 按钮
-                    Row(
+                    // ---------- 固定在底部的按钮区 ----------
+                    // 与滚动内容分离：无论内容多长、键盘是否弹出，取消/保存始终可见可点
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(horizontal = Space.xl)
+                                .padding(top = Space.md, bottom = Space.lg)
+                        ) {
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            )
+                            Spacer(modifier = Modifier.height(Space.md))
+                            Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(Space.md)
                     ) {
@@ -503,12 +528,14 @@ fun EventDialog(
                             )
                         ) {
                             Text("保存", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            }
-        }
-    }
+                        }        // 结束 Button
+                            }    // 结束 Row(按钮行)
+                        }        // 结束 Column(底部按钮容器)
+                    }            // 结束 Surface(固定底部区)
+                }                // 结束 Column(整体)
+            }                    // 结束 Surface(弹窗)
+        }                        // 结束 Box
+    }                            // 结束 Dialog
 }
 
 /**
@@ -703,6 +730,22 @@ private fun ReminderSection(
             color = if (effective.isEmpty()) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             modifier = Modifier.padding(top = Space.xs, start = Space.xs)
+        )
+
+        // 具体推送时刻：从设置页搬到这里，用户配置提醒时一眼就能看到
+        Text(
+            text = "提前 7 天 / 1 天 08:00　·　当天 00:00 / 08:00 / 12:00",
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            modifier = Modifier.padding(top = Space.sm, start = Space.xs)
+        )
+        Text(
+            text = "当天新增的纪念日会在 30 秒后立即提醒",
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.padding(top = 2.dp, start = Space.xs)
         )
     }
 }

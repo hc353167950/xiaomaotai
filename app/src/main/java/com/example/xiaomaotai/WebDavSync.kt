@@ -24,7 +24,8 @@ class WebDavSync(
     private val credentials: WebDavCredentials
 ) {
 
-    private val gson = Gson()
+    /** 用同一套带兜底的 Gson：SyncPayload 里的 events 才能正确解析 */
+    private val gson = EventJson.gson
 
     // ---------- 结果类型 ----------
 
@@ -195,9 +196,10 @@ class WebDavSync(
     private fun decodeEvents(raw: String): Result<List<Event>> = runCatching {
         val trimmed = raw.trim()
         if (trimmed.startsWith("[")) {
-            val type = object : com.google.gson.reflect.TypeToken<List<Event>>() {}.type
-            gson.fromJson<List<Event>>(trimmed, type) ?: emptyList()
+            // 裸数组：交给 EventJson 逐字段兜底
+            EventJson.decodeList(trimmed)
         } else {
+            // 带外层包装：取出 events 数组再走同一套兜底逻辑
             val payload = gson.fromJson(trimmed, SyncPayload::class.java)
             payload?.events ?: emptyList()
         }

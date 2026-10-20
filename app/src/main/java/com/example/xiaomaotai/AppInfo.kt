@@ -38,12 +38,11 @@ object AppInfo {
                 }
             )
         } catch (e: Exception) {
-            Version(name = "3.2.0", code = 9)
+            Version(name = "3.2.1", code = 10)
         }
     }
 
     const val NAME = "小茅台"
-
     const val SLOGAN = "把值得记住的日子，留在手心里"
 
     /** 关于页的「这个版本」更新说明 */
