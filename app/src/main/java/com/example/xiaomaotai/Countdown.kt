@@ -194,6 +194,37 @@ data class Countdown(
         }
 
 
+        /**
+         * 把天数换算成「约 N 月」/「约 N 年」/「约 N 年 N 月」的口语注释。
+         *
+         * 规则（按平均月长 30.44 天统一换算，避免出现「4 年 12 月」这种丑结果）：
+         * - 不足 30 天 → 返回 null（不显示注释）
+         * - 不足 12 个月 → 「约 N 月」
+         * - 满 12 个月且能整除 → 「约 N 年」
+         * - 满 12 个月且有余 → 「约 N 年 N 月」
+         *
+         * 传负值按绝对值处理，让正数/倒数共用同一套换算。
+         *
+         * @return 注释文案；不足一个月时为 null
+         */
+        fun humanizeApprox(days: Long): String? {
+            val d = kotlin.math.abs(days)
+            if (d < DAYS_PER_MONTH_MIN) return null
+
+            val totalMonths = Math.round(d / DAYS_PER_MONTH).toInt()
+            if (totalMonths < 12) return "约${totalMonths}月"
+
+            val years = totalMonths / 12
+            val months = totalMonths % 12
+            return if (months == 0) "约${years}年" else "约${years}年${months}月"
+        }
+
+        /** 平均月长（365.25 / 12），比固定 30 天更贴近真实日历 */
+        private const val DAYS_PER_MONTH = 30.44
+
+        /** 低于这个天数不显示「约 N 月」注释 */
+        private const val DAYS_PER_MONTH_MIN = 30L
+
         /** 2月29日在非闰年降级为2月28日 */
         private fun safeFebruaryDay(year: Int, month: Int, day: Int): Int =
             if (month == 2 && day == 29 && !Year.isLeap(year.toLong())) 28 else day

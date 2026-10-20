@@ -315,7 +315,11 @@ private fun GradientEventCard(
 
                 Spacer(modifier = Modifier.width(Space.sm))
 
-                DaysBlock(label, days, cardStyle, gradient = true)
+                DaysBlock(
+                    label, days, cardStyle,
+                    gradient = true,
+                    isCountUp = event.mode == EventMode.COUNT_UP
+                )
 
                 if (isDragMode) {
                     Spacer(modifier = Modifier.width(Space.xs))
@@ -473,7 +477,11 @@ private fun GlassEventCard(
                     )
                 }
 
-                DaysBlock(label, days, cardStyle, gradient = false)
+                DaysBlock(
+                    label, days, cardStyle,
+                    gradient = false,
+                    isCountUp = event.mode == EventMode.COUNT_UP
+                )
 
                 if (isDragMode) {
                     Spacer(modifier = Modifier.width(Space.xs))
@@ -577,15 +585,32 @@ private fun SoftActionButton(
  *
  * 大数字用负字距收紧，视觉更精致；单位小字压低对比。
  */
+/**
+ * 右侧天数块（方案二：数值与方向同行，换算注释下沉）。
+ *
+ * 版式：
+ * ```
+ *        1825 天后      ← 数值 + 方向同一基线
+ *           约5年       ← 注释单独一行，更小更淡
+ * ```
+ *
+ * 为什么不把注释塞进同一行：
+ * 1. 同一行会让右半区过长，挤压左侧标题；
+ * 2. 注释需要明显更低的视觉权重，单独一行才好控制；
+ * 3. 短天数时注释为空，第二行自动消失，版式回到单行。
+ */
 @Composable
 private fun DaysBlock(
     label: String,
     days: Long,
     cardStyle: CardStyleManager.CardStyle,
-    gradient: Boolean
+    gradient: Boolean,
+    isCountUp: Boolean = false
 ) {
     if (label == "日期无效") return
+
     when {
+        // ---------- 今天：占位不变 ----------
         label == "就是今天" -> {
             if (gradient) {
                 Text(
@@ -611,6 +636,8 @@ private fun DaysBlock(
                 }
             }
         }
+
+        // ---------- 明天 / 昨天：保持原样 ----------
         label.contains("明天") || label.contains("昨天") -> {
             Text(
                 text = label,
@@ -620,31 +647,55 @@ private fun DaysBlock(
                 letterSpacing = (-0.3).sp
             )
         }
-        label.contains("年") -> {
-            Text(
-                text = label,
-                fontSize = if (gradient) 14.sp else 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = cardStyle.textColor,
-                textAlign = TextAlign.End
-            )
-        }
+
         else -> {
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = kotlin.math.abs(days).toString(),
-                    fontSize = if (gradient) 30.sp else 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = cardStyle.textColor,
-                    letterSpacing = (-1).sp
-                )
-                Text(
-                    text = if (label.startsWith("还有")) "天后" else "天前",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = cardStyle.secondaryText,
-                    letterSpacing = 0.3.sp
-                )
+            val absDays = kotlin.math.abs(days)
+            // 位数多时降字号，避免 5~6 位数字顶到卡片边缘
+            val numberSize = when {
+                absDays < 1000 -> if (gradient) 30.sp else 32.sp
+                absDays < 10000 -> if (gradient) 26.sp else 28.sp
+                else -> if (gradient) 22.sp else 24.sp
+            }
+            // 方向词：倒数=天后，正数=已经
+            val unit = if (isCountUp) "已经" else "天后"
+            val approx = Countdown.humanizeApprox(absDays)
+
+            Column(
+                modifier = Modifier.widthIn(max = 118.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                // 数值 + 单位同一基线，读作「1825 天后」
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = absDays.toString(),
+                        fontSize = numberSize,
+                        fontWeight = FontWeight.Bold,
+                        color = cardStyle.textColor,
+                        letterSpacing = (-1).sp,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = unit,
+                        modifier = Modifier.padding(start = Space.xxs, bottom = 5.dp),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = cardStyle.secondaryText,
+                        letterSpacing = 0.3.sp,
+                        maxLines = 1
+                    )
+                }
+                // 换算注释：不足一个月时为 null，这一行不渲染，版式自然回到单行
+                if (approx != null) {
+                    Text(
+                        text = approx,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = cardStyle.secondaryText.copy(alpha = 0.72f),
+                        letterSpacing = 0.2.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }
