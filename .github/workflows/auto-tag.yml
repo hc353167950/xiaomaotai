@@ -85,18 +85,44 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
+      # setup-android@v3 内部会执行 `sdkmanager tools`，而新版 cmdline-tools 已移除该包，
+      # 会以 exit 1 失败。因此不再使用该 action，改为直接用 runner 预装的 Android SDK
+      # （ubuntu-latest 已自带 cmdline-tools 与 platforms），只补齐本项目需要的版本。
       - name: Install Android SDK packages
         run: |
           set -euo pipefail
-          sdkmanager --install \
+          # runner 预装 SDK，定位 sdkmanager
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${SDK_ROOT}" >> "$GITHUB_ENV"
+
+          SDKMGR="$(command -v sdkmanager || true)"
+          if [ -z "${SDKMGR}" ]; then
+            SDKMGR="$(find "${SDK_ROOT}" -name sdkmanager -type f 2>/dev/null | head -1)"
+          fi
+          if [ -z "${SDKMGR}" ]; then
+            echo "sdkmanager not found" >&2
+            exit 1
+          fi
+          echo "Using sdkmanager: ${SDKMGR}"
+
+          yes | "${SDKMGR}" --licenses >/dev/null 2>&1 || true
+          # 只安装项目必需项；已安装的会跳过
+          "${SDKMGR}" --install \
             "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "ndk;26.1.10909125" \
-            "cmake;3.22.1"
-          yes | sdkmanager --licenses >/dev/null || true
+            "build-tools;34.0.0" || true
+
+          echo "=== Installed platforms ==="
+          ls "${SDK_ROOT}/platforms" || true
+          echo "=== Installed build-tools ==="
+          ls "${SDK_ROOT}/build-tools" || true
+
+      - name: Write local.properties
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT}"
+          echo "sdk.dir=${SDK_ROOT}" > local.properties
+          cat local.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
