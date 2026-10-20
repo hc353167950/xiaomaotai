@@ -155,8 +155,5 @@ class NotificationAccessibilityService : AccessibilityService() {
     /**
      * 获取当前日期字符串
      */
-    private fun getCurrentDateString(): String {
-        val calendar = java.util.Calendar.getInstance()
-        return "${calendar.get(java.util.Calendar.YEAR)}-${calendar.get(java.util.Calendar.MONTH) + 1}-${calendar.get(java.util.Calendar.DAY_OF_MONTH)}"
-    }
+    private fun getCurrentDateString(): String = java.time.LocalDate.now().toString()
 }

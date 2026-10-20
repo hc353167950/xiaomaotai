@@ -43,17 +43,47 @@ object ReminderNotifier {
         manager.createNotificationChannel(channel)
     }
 
-    /** 提醒通知的稳定 ID：同事件同档位同时刻覆盖，不同时刻互不覆盖 */
-    fun notificationId(eventId: String, daysBefore: Int, hour: Int): Int =
+    /**
+     * 提醒通知的稳定 ID：同事件同纪念日同档位同时刻覆盖，不同时刻互不覆盖。
+     *
+     * 必须包含 [anniversary]：闰月年的「六月十六」有两个纪念日，
+     * 若不带日期，第二次提醒会把第一次的通知覆盖掉。
+     */
+    fun notificationId(
+        eventId: String,
+        daysBefore: Int,
+        hour: Int,
+        anniversary: java.time.LocalDate? = null
+    ): Int = if (anniversary == null) {
         "${eventId}_${daysBefore}_${hour}".hashCode()
+    } else {
+        "${eventId}_${anniversary}_${daysBefore}_${hour}".hashCode()
+    }
 
     /**
      * 发送纪念日提醒通知。
      * 标题/正文来自 [ReminderSchedule.notificationContent]，点击打开 App。
+     *
+     * @param anniversary 这次提醒对应的纪念日日期。若该日期落在农历闰月那天，
+     *   正文会额外标注「闰月」，让用户知道这是一年中的第二次。
      */
-    fun sendReminder(context: Context, event: Event, daysBefore: Int, hour: Int) {
+    fun sendReminder(
+        context: Context,
+        event: Event,
+        daysBefore: Int,
+        hour: Int,
+        anniversary: java.time.LocalDate? = null
+    ) {
         ensureChannel(context)
-        val (title, content) = ReminderSchedule.notificationContent(event.eventName, daysBefore)
+        val (title, baseContent) = ReminderSchedule.notificationContent(event.eventName, daysBefore)
+
+        // 闰月那天加标注，区分「六月十六」与「闰六月十六」
+        val lunarLabel = leapLabelFor(event.eventDate, anniversary)
+        val content = if (lunarLabel != null) {
+            "$baseContent（$lunarLabel）"
+        } else {
+            baseContent
+        }
 
         val notification = baseBuilder(context, event.id, event.eventName)
             .setContentTitle(title)
@@ -62,7 +92,27 @@ object ReminderNotifier {
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(notificationId(event.id, daysBefore, hour), notification)
+        manager.notify(notificationId(event.id, daysBefore, hour, anniversary), notification)
+    }
+
+    /**
+     * 若该纪念日日期落在闰月那天，返回如「闰六月十六」的标签；否则返回 null。
+     */
+    private fun leapLabelFor(eventDate: String, anniversary: java.time.LocalDate?): String? {
+        if (anniversary == null) return null
+        val parsed = DateParser.parse(eventDate) ?: return null
+        if (parsed.type != DateParser.DateType.LUNAR &&
+            parsed.type != DateParser.DateType.LUNAR_MONTH_DAY
+        ) {
+            return null
+        }
+        val lunarYear = LunarCalendarHelper.currentLunarYear(anniversary)
+        val isLeapHit = LunarCalendarHelper.isLeapCandidate(
+            lunarYear, parsed.month, parsed.day, anniversary
+        )
+        if (!isLeapHit) return null
+        return "闰${LunarCalendarHelper.getLunarMonthName(parsed.month)}" +
+            LunarCalendarHelper.getLunarDayName(parsed.day)
     }
 
     /** 发送测试通知（设置页"测试通知"按钮） */

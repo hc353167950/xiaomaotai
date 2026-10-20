@@ -342,10 +342,21 @@ class PersistentNotificationService : Service() {
             allEvents.forEach { event ->
                 try {
                     ReminderSchedule.dueNow(event.eventDate, now).forEach { occ ->
-                        if (!reminderManager.hasReminderSentToday(event.id, occ.daysBefore, occ.hour)) {
-                            ReminderNotifier.sendReminder(this, event, occ.daysBefore, occ.hour)
-                            reminderManager.markReminderSentToday(event.id, occ.daysBefore, occ.hour)
-                            Log.d(TAG, "轮询发送提醒: ${event.eventName}, ${occ.label}, ${occ.hour}:00")
+                        if (!reminderManager.hasReminderSentToday(
+                                event.id, occ.daysBefore, occ.hour, occ.anniversary
+                            )
+                        ) {
+                            ReminderNotifier.sendReminder(
+                                this, event, occ.daysBefore, occ.hour, occ.anniversary
+                            )
+                            reminderManager.markReminderSentToday(
+                                event.id, occ.daysBefore, occ.hour, occ.anniversary
+                            )
+                            Log.d(
+                                TAG,
+                                "轮询发送提醒: ${event.eventName}, ${occ.label}, " +
+                                    "${occ.hour}:00, 纪念日=${occ.anniversary}"
+                            )
                         }
                     }
                 } catch (e: Exception) {

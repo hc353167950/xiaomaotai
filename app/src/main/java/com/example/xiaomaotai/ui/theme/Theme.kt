@@ -13,98 +13,99 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// A · 最初 Apple 简约（灰底 + 系统色）
+// A · 暖纸 + 高饱和强调
 private val SoftDiaryLight = lightColorScheme(
-    primary = AppleBlue,
+    primary = BrandBlue,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD6E4FF),
-    onPrimaryContainer = Color(0xFF001A41),
-    secondary = Color(0xFF8E8E93),
+    primaryContainer = Color(0xFFE3ECFF),
+    onPrimaryContainer = Color(0xFF0A2E6E),
+    secondary = BrandViolet,
     onSecondary = Color.White,
-    secondaryContainer = LightFill,
-    onSecondaryContainer = LightLabel,
-    tertiary = ApplePurple,
+    secondaryContainer = Color(0xFFEFE9FE),
+    onSecondaryContainer = Color(0xFF2E1B5C),
+    tertiary = BrandCoral,
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFF2E6FF),
-    onTertiaryContainer = Color(0xFF2A0054),
+    tertiaryContainer = Color(0xFFFFE8E5),
+    onTertiaryContainer = Color(0xFF5C1A14),
     background = LightBackground,
     onBackground = LightLabel,
     surface = LightSurface,
     onSurface = LightLabel,
     surfaceVariant = LightSurfaceSecondary,
-    onSurfaceVariant = Color(0xFF3C3C43).copy(alpha = 0.65f),
-    outline = LightSeparator,
-    outlineVariant = Color(0xFFD1D1D6),
-    error = AppleRed,
+    onSurfaceVariant = LightSecondaryLabel,
+    outline = LightOutline,
+    outlineVariant = LightSeparator,
+    error = ErrorRed,
     onError = Color.White,
-    errorContainer = Color(0xFFFFE5E3),
-    onErrorContainer = Color(0xFF410002),
-    inverseSurface = Color(0xFF1C1C1E),
-    inverseOnSurface = Color.White,
-    inversePrimary = AppleBlueDark,
+    errorContainer = Color(0xFFFFE4E2),
+    onErrorContainer = Color(0xFF5C1210),
+    inverseSurface = Color(0xFF2A2A2E),
+    inverseOnSurface = Color(0xFFF5F5F7),
+    inversePrimary = BrandBlueLight,
     surfaceTint = Color.Transparent
 )
 
-// B · Glass Countdown
+// B · 玻璃：冷白 + 低饱和
 private val GlassLight = lightColorScheme(
     primary = Color(0xFF3A7BD5),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFEEF4FC),
-    onPrimaryContainer = Color(0xFF1A3A5C),
-    secondary = Color(0xFF8E8E93),
+    primaryContainer = Color(0xFFEDF3FC),
+    onPrimaryContainer = Color(0xFF16375C),
+    secondary = Color(0xFF7B74C8),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFF4F4F6),
-    onSecondaryContainer = Color(0xFF3A3A3C),
-    tertiary = Color(0xFF7B74C8),
+    secondaryContainer = Color(0xFFF1F0FA),
+    onSecondaryContainer = Color(0xFF2A2650),
+    tertiary = Color(0xFF4FAE86),
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFF2F1FA),
-    onTertiaryContainer = Color(0xFF2E2A55),
-    background = Color(0xFFF4F5F8),
-    onBackground = Color(0xFF1C1C1E),
+    tertiaryContainer = Color(0xFFEDF8F3),
+    onTertiaryContainer = Color(0xFF14402F),
+    background = Color(0xFFF2F4F8),
+    onBackground = Color(0xFF1A1C1F),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF1C1C1E),
-    surfaceVariant = Color(0xFFF7F8FA),
-    onSurfaceVariant = Color(0xFF6C6C70),
-    outline = Color(0xFFE2E4E9),
-    outlineVariant = Color(0xFFEEEFF2),
-    error = Color(0xFFE35D5B),
+    onSurface = Color(0xFF1A1C1F),
+    surfaceVariant = Color(0xFFF5F7FA),
+    onSurfaceVariant = Color(0xFF65656B),
+    outline = Color(0xFFDDE1E8),
+    outlineVariant = Color(0xFFEAEDF2),
+    error = Color(0xFFDC5D58),
     onError = Color.White,
-    errorContainer = Color(0xFFFDF0EF),
-    onErrorContainer = Color(0xFF5C1A18),
+    errorContainer = Color(0xFFFDEFEE),
+    onErrorContainer = Color(0xFF571B18),
     inverseSurface = Color(0xFF2C2C2E),
     inverseOnSurface = Color(0xFFF5F5F7),
     inversePrimary = Color(0xFF8AB6F0),
     surfaceTint = Color.Transparent
 )
 
+// 深色主题（两套风格共用，强调色保持品牌蓝）
 private val SharedDark = darkColorScheme(
-    primary = AppleBlueDark,
+    primary = BrandBlueLight,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF003A8F),
+    primaryContainer = Color(0xFF1E3F7A),
     onPrimaryContainer = Color(0xFFD6E4FF),
-    secondary = Color(0xFF98989D),
-    onSecondary = Color.Black,
-    secondaryContainer = DarkFill,
-    onSecondaryContainer = DarkLabel,
-    tertiary = Color(0xFFBF5AF2),
-    onTertiary = Color.White,
-    tertiaryContainer = Color(0xFF4A1A6B),
-    onTertiaryContainer = Color(0xFFF2E6FF),
+    secondary = Color(0xFFA78BFA),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFF3D2E66),
+    onSecondaryContainer = Color(0xFFEDE6FF),
+    tertiary = Color(0xFFFF9A8B),
+    onTertiary = Color(0xFF4A1510),
+    tertiaryContainer = Color(0xFF5C221B),
+    onTertiaryContainer = Color(0xFFFFDDD7),
     background = DarkBackground,
     onBackground = DarkLabel,
     surface = DarkSurface,
     onSurface = DarkLabel,
     surfaceVariant = DarkSurfaceSecondary,
     onSurfaceVariant = DarkSecondaryLabel,
-    outline = DarkSeparator,
-    outlineVariant = Color(0xFF48484A),
-    error = Color(0xFFFF453A),
+    outline = DarkOutline,
+    outlineVariant = DarkSeparator,
+    error = Color(0xFFFF6B62),
     onError = Color.White,
-    errorContainer = Color(0xFF93000A),
+    errorContainer = Color(0xFF8A1A16),
     onErrorContainer = Color(0xFFFFDAD6),
     inverseSurface = Color(0xFFF2F2F7),
-    inverseOnSurface = Color(0xFF1C1C1E),
-    inversePrimary = AppleBlue,
+    inverseOnSurface = Color(0xFF1A1A1C),
+    inversePrimary = BrandBlue,
     surfaceTint = Color.Transparent
 )
 
@@ -123,7 +124,7 @@ fun XiaoMaoTaiTheme(
 
     val chrome = when {
         darkTheme -> DarkChrome
-        uiStyle == UiStyle.GlassCountdown -> Color(0xFFF7F8FA)
+        uiStyle == UiStyle.GlassCountdown -> Color(0xFFF7F8FB)
         else -> LightChrome
     }
 
@@ -139,7 +140,10 @@ fun XiaoMaoTaiTheme(
         }
     }
 
-    CompositionLocalProvider(LocalUiStyle provides uiStyle) {
+    CompositionLocalProvider(
+        LocalUiStyle provides uiStyle,
+        LocalDarkTheme provides darkTheme
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
@@ -147,3 +151,6 @@ fun XiaoMaoTaiTheme(
         )
     }
 }
+
+/** 供卡片等组件判断深色模式（决定用哪套渐变） */
+val LocalDarkTheme = androidx.compose.runtime.staticCompositionLocalOf { false }

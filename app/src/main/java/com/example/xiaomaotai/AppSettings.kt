@@ -1,4 +1,4 @@
-package com.example.xiaomaotai
+﻿package com.example.xiaomaotai
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -15,36 +15,36 @@ class AppSettings(context: Context) {
     // 隐藏最近任务
     fun isHideRecentTaskEnabled(): Boolean = prefs.getBoolean("hide_recent_task", false)
     fun setHideRecentTask(enabled: Boolean) {
-        prefs.edit().putBoolean("hide_recent_task", enabled).commit()
+        prefs.edit().putBoolean("hide_recent_task", enabled).apply()
     }
 
     // 常驻通知
     fun isPersistentNotificationEnabled(): Boolean = prefs.getBoolean("persistent_notification", false)
     fun setPersistentNotification(enabled: Boolean) {
-        prefs.edit().putBoolean("persistent_notification", enabled).commit()
+        prefs.edit().putBoolean("persistent_notification", enabled).apply()
     }
 
     // 自动排序过期事件（默认开启）
     fun isAutoSortExpiredEventsEnabled(): Boolean = prefs.getBoolean("auto_sort_expired_events", true)
     fun setAutoSortExpiredEvents(enabled: Boolean) {
-        prefs.edit().putBoolean("auto_sort_expired_events", enabled).commit()
+        prefs.edit().putBoolean("auto_sort_expired_events", enabled).apply()
     }
 
     // 无障碍通知保活
     fun isAccessibilityNotificationEnabled(): Boolean = prefs.getBoolean("accessibility_notification", false)
     fun setAccessibilityNotification(enabled: Boolean) {
-        prefs.edit().putBoolean("accessibility_notification", enabled).commit()
+        prefs.edit().putBoolean("accessibility_notification", enabled).apply()
     }
 
     // UI 视觉风格：soft_diary / glass_countdown（默认 A 渐变卡片）
     fun getUiStyleId(): String = prefs.getString("ui_style", "soft_diary") ?: "soft_diary"
     fun setUiStyleId(styleId: String) {
-        prefs.edit().putString("ui_style", styleId).commit()
+        prefs.edit().putString("ui_style", styleId).apply()
     }
 
     // 通知权限提示节流（每7天最多提示一次）
     fun recordNotificationPromptTime() {
-        prefs.edit().putLong("last_notification_prompt", System.currentTimeMillis()).commit()
+        prefs.edit().putLong("last_notification_prompt", System.currentTimeMillis()).apply()
     }
 
     fun shouldShowNotificationPrompt(): Boolean {

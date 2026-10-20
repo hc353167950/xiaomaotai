@@ -1,4 +1,4 @@
-package com.example.xiaomaotai
+﻿package com.example.xiaomaotai
 
 import android.app.ActivityManager
 import android.content.Context
@@ -14,7 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.xiaomaotai.ui.theme.Shape
+import com.example.xiaomaotai.ui.theme.Space
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.Icons
@@ -127,7 +128,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(16.dp),
+            shape = Shape.medium,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -160,7 +161,7 @@ fun SettingsScreen(
                         Surface(
                             onClick = { onUiStyleChange(id) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = Shape.small,
                             color = if (selected)
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                             else
@@ -193,7 +194,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -246,7 +247,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -334,7 +335,7 @@ fun SettingsScreen(
 
                 // 只在未开启时显示详细设置选项
                 if (!permissionSummary.hasExactAlarm) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(Space.sm))
 
                     // 检测设备制造商
                     val isChineseDevice = permissionManager.isChineseDevice()
@@ -377,7 +378,7 @@ fun SettingsScreen(
 
                     // 国产设备专用设置按钮
                     if (isChineseDevice) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(Space.xxs))
                         OutlinedButton(
                             onClick = {
                                 try {
@@ -396,7 +397,7 @@ fun SettingsScreen(
                             Text("${vendorName}权限管理")
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(Space.xxs))
                         OutlinedButton(
                             onClick = {
                                 try {
@@ -413,7 +414,7 @@ fun SettingsScreen(
                         }
 
                         // 国产设备的详细说明
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(Space.sm))
                         val deviceInstructions = when {
                             permissionManager.isVivoDevice() ->
                                 "vivo/iQOO设备通用方法：\n1. 设置 → 应用与权限 → 权限管理 → 闹钟 → 添加小茅台\n2. 或在设置中直接搜索\"闹钟权限\""
@@ -440,7 +441,7 @@ fun SettingsScreen(
                                             permissionManager.isOppoDevice() ||
                                             permissionManager.isHuaweiDevice()
                         if (isChineseDevice) {
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(Space.xs))
                             Text(
                                 text = "💡 如果以上路径找不到，请在设置中直接搜索\"闹钟\"或\"权限\"关键词",
                                 fontSize = 10.sp,
@@ -457,7 +458,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -542,7 +543,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -600,7 +601,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -670,7 +671,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -745,7 +746,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -799,7 +800,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -865,7 +866,7 @@ fun SettingsScreen(
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = Shape.small,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -897,7 +898,7 @@ fun SettingsScreen(
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = Shape.tiny
                 ) {
                     Text(
                         text = "立即发送",

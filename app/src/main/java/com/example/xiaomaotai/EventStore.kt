@@ -5,22 +5,22 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.example.xiaomaotai.ui.components.CardStyleManager
 import com.google.gson.Gson
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 /**
  * 事件仓库深模块：整个应用中"现在有哪些事件"的唯一答案来源。
  *
- * 接口收窄为 currentEvents() + add/update/delete/reorder 五个动词。
- * 登录/离线双缓存的分支、SharedPreferences 持久化、Supabase 同步、
- * 提醒联动、常驻通知刷新全部是实现细节——此前每个后台组件都要手写
- * "offline + local 合并"（≥6 处复制），现在一个查询搞定。
+ * 纯本地存储版本：不再有登录/离线双缓存分支，所有事件都存放在同一个
+ * SharedPreferences 键 [KEY_EVENTS] 里。云端同步由 [WebDavSync] 以
+ * "整体快照"的方式完成，不介入本模块的读写路径。
  *
- * 与 [Account] 的衔接：构造时注册 onLogin/onLogout 回调，
- * 登录后拉取云端并同步离线事件，登出时清空缓存。
+ * 接口仍然是五个动词：currentEvents / add / update / delete / reorder。
  */
 class EventStore(
     private val context: Context,
-    private val account: Account,
-    private val network: NetworkDataManager = NetworkDataManager(),
     private val reminderManager: ReminderManager = ReminderManager(context)
 ) {
 
@@ -29,236 +29,109 @@ class EventStore(
     private val gson = Gson()
     private val settings = AppSettings(context)
 
-    // 内存缓存：登录用户的云端事件 / 未登录的离线事件
-    private var localEvents: List<Event> = emptyList()
-    private var offlineEvents: List<Event> = emptyList()
+    // 内存缓存 + 可观察状态（UI 与同步模块据此刷新）
+    private val _events = MutableStateFlow<List<Event>>(emptyList())
+    val eventsFlow: StateFlow<List<Event>> = _events.asStateFlow()
 
     init {
-        account.onLogin = { user ->
-            loadUserData(user.id)
-            syncOfflineData(user.id)
-        }
-        account.onLogout = {
-            prefs.edit()
-                .remove("local_events")
-                .remove("offline_events")
-                .commit()
-            localEvents = emptyList()
-            offlineEvents = emptyList()
-            updatePersistentNotificationIfEnabled()
-        }
+        migrateLegacyKeys()
+        _events.value = loadFromPrefs(KEY_EVENTS)
     }
 
-    // ---------- 查询（唯一入口，内部消化登录/离线分支） ----------
+    // ---------- 查询 ----------
 
     /**
      * 当前全部事件，按 sortOrder 降序（用户手动排序优先）。
-     * 登录走云端缓存，未登录走离线缓存——调用方无需再感知这条分支。
      */
-    fun currentEvents(): List<Event> {
-        return if (account.isLoggedIn()) {
-            localEvents.sortedByDescending { it.sortOrder }
-        } else {
-            offlineEvents.sortedByDescending { it.sortOrder }
-        }
-    }
+    fun currentEvents(): List<Event> = _events.value.sortedByDescending { it.sortOrder }
 
-    /** 后台组件（广播/服务/Worker）冷启动时直接读持久化缓存，不依赖内存状态 */
-    fun persistedEvents(): List<Event> {
-        val merged = mutableListOf<Event>()
-        merged.addAll(loadFromPrefs("offline_events"))
-        if (account.isLoggedIn()) {
-            merged.addAll(loadFromPrefs("local_events"))
-        }
-        return merged
-    }
+    /** 后台组件（广播/服��/Worker）冷启动时直接读持久化缓存，不依赖内存状态 */
+    fun persistedEvents(): List<Event> = loadFromPrefs(KEY_EVENTS)
 
     fun hasAnyEvents(): Boolean = persistedEvents().isNotEmpty()
 
     // ---------- 变更 ----------
 
     suspend fun addEvent(event: Event) {
-        if (account.isLoggedIn()) {
-            val userId = account.getCurrentUserId()!!
-            try {
-                val eventToSave = event.copy(
-                    status = EventStatus.NORMAL,
-                    backgroundId = assignBackgroundId(event)
-                ).withAutoDetectedType()
-                val result = network.saveEvent(eventToSave, userId)
-                if (result.isSuccess) {
-                    // 先立即更新本地缓存，通知刷新时才能看到新事件；再异步对齐服务器
-                    localEvents = localEvents + eventToSave
-                    persist("local_events", localEvents)
-                    reminderManager.scheduleReminder(eventToSave)
-                    updatePersistentNotificationIfEnabled()
-                    loadUserData(userId)
-                } else {
-                    Log.e(TAG, "保存事件到云端失败: ${result.exceptionOrNull()?.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "添加事件异常: ${e.message}")
-            }
-        } else {
-            val offlineEvent = event.copy(
-                id = "offline_${System.currentTimeMillis()}",
-                status = EventStatus.NORMAL,
-                backgroundId = assignBackgroundId(event)
-            ).withAutoDetectedType()
-            offlineEvents = offlineEvents + offlineEvent
-            persist("offline_events", offlineEvents)
-            reminderManager.scheduleReminder(offlineEvent)
-            updatePersistentNotificationIfEnabled()
-        }
+        val eventToSave = event.copy(
+            id = event.id.ifBlank { newId() },
+            status = EventStatus.NORMAL,
+            backgroundId = assignBackgroundId(event)
+        ).withAutoDetectedType()
+
+        commitList(_events.value + eventToSave)
+        reminderManager.scheduleReminder(eventToSave)
+        updatePersistentNotificationIfEnabled()
     }
 
     suspend fun updateEvent(event: Event) {
-        if (account.isLoggedIn()) {
-            try {
-                val eventToUpdate = event.copy(status = EventStatus.UPDATED).withAutoDetectedType()
-                val result = network.updateEvent(eventToUpdate)
-                if (result.isSuccess) {
-                    localEvents = localEvents.map { if (it.id == eventToUpdate.id) eventToUpdate else it }
-                    persist("local_events", localEvents)
-                    reminderManager.updateReminder(eventToUpdate)
-                    updatePersistentNotificationIfEnabled()
-                } else {
-                    Log.e(TAG, "更新云端事件失败: ${result.exceptionOrNull()?.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "更新事件异常: ${e.message}")
-            }
-        } else {
-            val updatedEvent = event.withAutoDetectedType()
-            offlineEvents = offlineEvents.map { if (it.id == updatedEvent.id) updatedEvent else it }
-            persist("offline_events", offlineEvents)
-            reminderManager.updateReminder(updatedEvent)
-            updatePersistentNotificationIfEnabled()
-        }
+        val eventToUpdate = event.withAutoDetectedType()
+        commitList(_events.value.map { if (it.id == eventToUpdate.id) eventToUpdate else it })
+        reminderManager.updateReminder(eventToUpdate)
+        updatePersistentNotificationIfEnabled()
     }
 
     suspend fun deleteEvent(eventId: String) {
-        if (account.isLoggedIn()) {
-            try {
-                val result = network.updateEventStatus(eventId, EventStatus.DELETED)
-                if (!result.isSuccess) {
-                    Log.e(TAG, "云端标记删除失败: ${result.exceptionOrNull()?.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "删除事件异常: ${e.message}")
-            }
-            // 无论云端成败，本地立即删除（下次 loadUserData 会对齐）
-            localEvents = localEvents.filter { it.id != eventId }
-            persist("local_events", localEvents)
+        // 先取出被删事件，用于彻底清理它带纪念日日期的全部闹钟
+        val target = _events.value.firstOrNull { it.id == eventId }
+        commitList(_events.value.filter { it.id != eventId })
+        if (target != null) {
+            reminderManager.cancelAllForEvent(target)
         } else {
-            offlineEvents = offlineEvents.filter { it.id != eventId }
-            persist("offline_events", offlineEvents)
+            reminderManager.cancelReminder(eventId)
         }
-        reminderManager.cancelReminder(eventId)
         updatePersistentNotificationIfEnabled()
     }
 
     /** 批量更新排序（拖拽排序页保存） */
     suspend fun updateEventOrder(events: List<Event>) {
-        if (account.isLoggedIn()) {
-            val userId = account.getCurrentUserId()!!
+        commitList(events)
+    }
+
+    /**
+     * 整体替换事件列表（WebDAV 恢复 / 合并结果写回用）。
+     * 会重新补设提醒并刷新常驻通知。
+     */
+    suspend fun replaceAll(events: List<Event>) {
+        commitList(events)
+        events.forEach { event ->
             try {
-                val result = network.updateEventOrder(events, userId)
-                if (result.isSuccess) {
-                    localEvents = events
-                    persist("local_events", localEvents)
-                } else {
-                    Log.e(TAG, "更新排序失败: ${result.exceptionOrNull()?.message}")
-                }
+                reminderManager.safeScheduleReminder(event)
             } catch (e: Exception) {
-                Log.e(TAG, "更新排序异常: ${e.message}")
+                Log.e(TAG, "替换后设置提醒失败: ${event.eventName}, ${e.message}")
             }
-        } else {
-            offlineEvents = events
-            persist("offline_events", offlineEvents)
         }
+        updatePersistentNotificationIfEnabled()
     }
 
     // ---------- 生命周期 ----------
 
-    /** App 启动时初始化：恢复缓存、补设提醒、登录用户拉取云端 */
+    /** App 启动时初始化：恢复缓存、补设提醒 */
     suspend fun initialize() {
-        localEvents = loadFromPrefs("local_events")
-        offlineEvents = loadFromPrefs("offline_events")
-
-        offlineEvents.forEach { event ->
+        _events.value = loadFromPrefs(KEY_EVENTS)
+        _events.value.forEach { event ->
             try {
                 reminderManager.safeScheduleReminder(event)
             } catch (e: Exception) {
-                Log.e(TAG, "为离线事件设置提醒失败: ${event.eventName}, ${e.message}")
+                Log.e(TAG, "设置提醒失败: ${event.eventName}, ${e.message}")
             }
-        }
-
-        account.getCurrentUser()?.let { loadUserData(it.id) }
-    }
-
-    /** 从云端刷新登录用户的事件（含提醒补设与通知刷新） */
-    suspend fun loadUserData(userId: String) {
-        try {
-            val result = network.getEvents(userId)
-            if (result.isSuccess) {
-                localEvents = result.getOrNull() ?: emptyList()
-                persist("local_events", localEvents)
-                localEvents.forEach { event ->
-                    try {
-                        reminderManager.safeScheduleReminder(event)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "设置提醒失败: ${event.eventName}, ${e.message}")
-                    }
-                }
-                updatePersistentNotificationIfEnabled()
-            } else {
-                Log.e(TAG, "拉取云端事件失败: ${result.exceptionOrNull()?.message}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "加载用户数据异常: ${e.message}")
         }
     }
 
     suspend fun refreshEvents() {
-        if (account.isLoggedIn()) {
-            account.getCurrentUserId()?.let { loadUserData(it) }
-        } else {
-            offlineEvents = loadFromPrefs("offline_events")
-        }
-    }
-
-    /** 登录后把离线期间创建的事件推到云端，排在最上面 */
-    private suspend fun syncOfflineData(userId: String) {
-        val offlineEventsToSync = loadFromPrefs("offline_events")
-        if (offlineEventsToSync.isEmpty()) return
-
-        val currentMaxSortOrder = localEvents.maxOfOrNull { it.sortOrder } ?: -1
-        var syncSortOrder = currentMaxSortOrder + 1
-
-        for (event in offlineEventsToSync) {
-            try {
-                val syncEvent = event.copy(
-                    status = EventStatus.NORMAL,
-                    sortOrder = syncSortOrder++
-                )
-                val result = network.saveEvent(syncEvent, userId)
-                if (!result.isSuccess) {
-                    Log.e(TAG, "同步离线事件失败 ${event.id}: ${result.exceptionOrNull()?.message}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "同步离线事件异常 ${event.id}: ${e.message}")
-            }
-        }
-        prefs.edit().remove("offline_events").commit()
-        offlineEvents = emptyList()
-        loadUserData(userId)
+        _events.value = loadFromPrefs(KEY_EVENTS)
     }
 
     // ---------- 实现细节 ----------
 
+    /** 统一写入路径：更新内存缓存、落盘、通知订阅方 */
+    private fun commitList(events: List<Event>) {
+        _events.value = events
+        persist(KEY_EVENTS, events)
+    }
+
     private fun persist(key: String, events: List<Event>) {
-        prefs.edit().putString(key, gson.toJson(events)).commit()
+        prefs.edit().putString(key, gson.toJson(events)).apply()
     }
 
     private fun loadFromPrefs(key: String): List<Event> {
@@ -271,6 +144,29 @@ class EventStore(
             emptyList()
         }
     }
+
+    /**
+     * 一次性迁移：旧版本把事件拆成 local_events（登录用户）与 offline_events
+     * （未登录）两个键。升级后合并到单一 events 键，避免用户误以为数据丢失。
+     */
+    private fun migrateLegacyKeys() {
+        if (prefs.contains(KEY_EVENTS)) return
+
+        val legacy = loadFromPrefs(LEGACY_LOCAL) + loadFromPrefs(LEGACY_OFFLINE)
+        if (legacy.isEmpty()) return
+
+        // 旧数据可能缺 id，补上稳定 id 后再落盘
+        val migrated = legacy.map { it.copy(id = it.id.ifBlank { newId() }) }
+        persist(KEY_EVENTS, migrated)
+        prefs.edit()
+            .remove(LEGACY_LOCAL)
+            .remove(LEGACY_OFFLINE)
+            .apply()
+        Log.d(TAG, "已迁移旧事件数据 ${migrated.size} 条到 $KEY_EVENTS")
+    }
+
+    /** 生成事件唯一标识：UUID，避免时间戳在批量导入时碰撞 */
+    private fun newId(): String = UUID.randomUUID().toString()
 
     /** 新事件分配背景样式：避开已使用的颜色 */
     private fun assignBackgroundId(event: Event): Int {
@@ -292,5 +188,12 @@ class EventStore(
 
     companion object {
         private const val TAG = "EventStore"
+
+        /** 当前使用的唯一事件存储键 */
+        const val KEY_EVENTS = "events"
+
+        /** 旧版本遗留键（仅用于一次性迁移） */
+        private const val LEGACY_LOCAL = "local_events"
+        private const val LEGACY_OFFLINE = "offline_events"
     }
 }

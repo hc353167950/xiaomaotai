@@ -1,4 +1,4 @@
-package com.example.xiaomaotai.ui.components
+﻿package com.example.xiaomaotai.ui.components
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -13,7 +13,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.xiaomaotai.ui.theme.Shape
+import com.example.xiaomaotai.ui.theme.Space
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -277,7 +278,7 @@ fun SortScreen(
                     Button(
                         onClick = { saveAndExit() },
                         enabled = !isSaving,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = Shape.small,
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
@@ -300,7 +301,7 @@ fun SortScreen(
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(Space.xs))
 
             Text(
                 text = "拖动右侧把手调整顺序",
@@ -310,7 +311,7 @@ fun SortScreen(
 
             // 自动排序过期事件提示条
             if (isAutoSortEnabled) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Space.md))
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -318,7 +319,7 @@ fun SortScreen(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = Shape.small
                 ) {
                     Column(
                         modifier = Modifier.padding(14.dp)
@@ -364,7 +365,7 @@ fun SortScreen(
                             }
                         }
 
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(Space.sm))
 
                         // 说明文字
                         Column(
@@ -385,7 +386,7 @@ fun SortScreen(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Space.lg))
             
             // 简洁的排序按钮 - 等比展示
             Row(
@@ -492,7 +493,7 @@ fun SortScreen(
         ) {
             Card(
                 modifier = Modifier.padding(32.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = Shape.medium
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
@@ -590,7 +591,7 @@ fun DraggableEventItem(
             }
             .shadow(
                 elevation = if (isDragging && index == draggedIndex) 4.dp else 0.dp,
-                shape = RoundedCornerShape(16.dp)
+                shape = Shape.medium
             )
             .zIndex(if (isDragging && index == draggedIndex) 1f else 0f)
     ) {
