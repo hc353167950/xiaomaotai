@@ -56,23 +56,33 @@ class WebDavClient(
 
     /**
      * 逐级创建目录（MKCOL）。
-     * 已存在（405 Method Not Allowed）视为成功，这是 WebDAV 的通行语义。
+     *
+     * 两个必须注意的协议细节（曾导致 infini-cloud 等服务器「创建目录失败」）：
+     * 1. 目录 URL 必须以 `/` 结尾，否则多数 WebDAV 服务器返回 301/409；
+     * 2. 目录已存在时返回码不统一：405 / 301 / 200 / 204 / 403 都出现过，
+     *    因此这里只把「认证失败」当致命错误，其余按「可能已存在」放过，
+     *    真正的写入结果由随后的 PUT 决定——PUT 成功就是真的成功。
      */
     suspend fun ensureDirectory(path: String): Result<Unit> = runCatching {
         var current = ""
         for (segment in path.trim('/').split('/')) {
             if (segment.isBlank()) continue
             current = if (current.isEmpty()) segment else "$current/$segment"
-            val response = client.request(url(current)) {
+            val response = client.request(url("$current/")) {
                 method = HttpMethod("MKCOL")
                 header(HttpHeaders.Authorization, authHeader())
             }
-            // 201 创建成功 / 405 已存在 / 409 父目录缺失（理论上不会到这里）
-            if (response.status != HttpStatusCode.Created &&
-                response.status != HttpStatusCode.MethodNotAllowed &&
-                response.status != HttpStatusCode.OK
-            ) {
-                throw WebDavException("创建目录失败 ${response.status.value}: $current")
+            when (response.status.value) {
+                401, 403 -> {
+                    // 403 在部分服务器上表示「已存在但不可创建」，由 PUT 最终判定
+                    if (response.status == HttpStatusCode.Unauthorized) {
+                        throw WebDavException("认证失败，请检查用户名与密码")
+                    }
+                    Log.d(TAG, "MKCOL 403，目录可能已存在: $current")
+                }
+                200, 201, 204, 301, 405 -> Unit
+                409 -> throw WebDavException("父目录不存在，无法创建: $current")
+                else -> Log.w(TAG, "MKCOL ${response.status.value}，继续尝试写入: $current")
             }
         }
     }

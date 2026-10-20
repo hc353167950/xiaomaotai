@@ -76,7 +76,7 @@ object Shape {
  */
 object Sizes {
     /** 首页卡片最小高度（内容多时可自然撑高） */
-    val cardMinHeight = 112.dp
+    val cardMinHeight = 76.dp
 
     /** 顶部搜索框高度 */
     val searchHeight = 44.dp

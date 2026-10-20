@@ -16,7 +16,7 @@ enum class UiStyle(val id: String, val title: String, val subtitle: String) {
     GlassCountdown(
         id = "glass_countdown",
         title = "清透白卡",
-        subtitle = "白底细边，极淡色洗与色条"
+        subtitle = "白底细描边，色条与淡光晕"
     );
 
     companion object {

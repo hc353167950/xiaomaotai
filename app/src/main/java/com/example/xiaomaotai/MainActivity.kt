@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
@@ -37,6 +36,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,11 +63,18 @@ import com.example.xiaomaotai.ui.theme.XiaoMaoTaiTheme
 import com.example.xiaomaotai.ui.theme.Space
 import com.example.xiaomaotai.ui.theme.Shape
 import com.example.xiaomaotai.ui.theme.Sizes
-import com.example.xiaomaotai.ui.components.ProfileScreen
+import com.example.xiaomaotai.ui.components.AboutScreen
 import com.example.xiaomaotai.ui.components.EventItem
 import com.example.xiaomaotai.ui.components.EventDialog
 import com.example.xiaomaotai.ui.components.CardStyleManager
 import com.example.xiaomaotai.ui.components.GlobalLoadingDialog
+import com.example.xiaomaotai.ui.components.KeepAliveScreen
+import com.example.xiaomaotai.ui.components.NotificationScreen
+import com.example.xiaomaotai.ui.components.SettingsHomeScreen
+import com.example.xiaomaotai.ui.components.SettingsRoute
+import com.example.xiaomaotai.ui.components.SortingScreen
+import com.example.xiaomaotai.ui.components.UiStyleScreen
+import com.example.xiaomaotai.ui.components.WebDavScreen
 import com.example.xiaomaotai.ui.components.calculateDaysAfter
 import com.example.xiaomaotai.ui.components.SortScreen
 import kotlinx.coroutines.launch
@@ -318,6 +325,8 @@ fun MainApp(
     var showNotificationPrompt by remember { mutableStateOf(false) }
     var showExactAlarmPermissionDialog by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf("home") }
+    // 设置二级页当前路由；null 表示停留在设置根页
+    var settingsRoute by remember { mutableStateOf<SettingsRoute?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
 
@@ -362,8 +371,8 @@ fun MainApp(
         }
     }
     
-    // 处理首页、我的页面的返回按键
-    if (currentScreen in listOf("home", "profile")) {
+    // 设置二级页的返回键由各页内部 BackHandler 处理；这里只处理两个 Tab 根页
+    if (currentScreen == "home" || (currentScreen == "settings" && settingsRoute == null)) {
         BackHandler {
             val currentTime = System.currentTimeMillis()
             if (currentTime - backPressedTime < 2000) {
@@ -380,7 +389,8 @@ fun MainApp(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (currentScreen != "sort") {
+            // 排序页与设置二级页都全屏显示，隐藏底部导航
+            if (currentScreen != "sort" && settingsRoute == null) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.surface,
@@ -407,10 +417,13 @@ fun MainApp(
                                 onClick = { currentScreen = "home" }
                             )
                             CustomNavigationItem(
-                                icon = Icons.Default.Person,
-                                label = "我的",
-                                selected = currentScreen == "profile",
-                                onClick = { currentScreen = "profile" }
+                                icon = Icons.Default.Settings,
+                                label = "设置",
+                                selected = currentScreen == "settings",
+                                onClick = {
+                                    currentScreen = "settings"
+                                    settingsRoute = null
+                                }
                             )
                         }
                     }
@@ -430,24 +443,37 @@ fun MainApp(
                 },
                 refreshKey = refreshKey
             )
-            "profile" -> ProfileScreen(
-                eventStore = events,
-                credentials = webDavCredentials,
-                sync = webDavSync,
-                onNavigateToSettings = {
-                    currentScreen = "settings"
-                },
-                onBack = {
-                    // 我的页面返回手势应该退出到桌面，不处理返回事件让系统处理
+            "settings" -> {
+                val route = settingsRoute
+                if (route == null) {
+                    // 设置根页：分类入口列表
+                    SettingsHomeScreen(
+                        uiStyleId = uiStyleId,
+                        syncConfigured = webDavCredentials.isConfigured(),
+                        onNavigate = { settingsRoute = it }
+                    )
+                } else {
+                    // 二级页：全屏，自带返回箭头
+                    val back = { settingsRoute = null }
+                    when (route) {
+                        SettingsRoute.UiStyle -> UiStyleScreen(
+                            uiStyleId = uiStyleId,
+                            onUiStyleChange = onUiStyleChange,
+                            onBack = back
+                        )
+                        SettingsRoute.Notification -> NotificationScreen(onBack = back)
+                        SettingsRoute.KeepAlive -> KeepAliveScreen(onBack = back)
+                        SettingsRoute.WebDav -> WebDavScreen(
+                            eventStore = events,
+                            credentials = webDavCredentials,
+                            sync = webDavSync,
+                            onBack = back
+                        )
+                        SettingsRoute.Sorting -> SortingScreen(onBack = back)
+                        SettingsRoute.About -> AboutScreen(onBack = back)
+                    }
                 }
-            )
-            "settings" -> SettingsScreen(
-                onNavigateBack = {
-                    currentScreen = "profile"
-                },
-                uiStyleId = uiStyleId,
-                onUiStyleChange = onUiStyleChange
-            )
+            }
             "sort" -> {
                 SortScreen(
                     eventStore = events,

@@ -218,12 +218,12 @@ private fun GradientEventCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(140.dp)
-                    .offset(x = 40.dp, y = (-40).dp)
+                    .size(120.dp)
+                    .offset(x = 36.dp, y = (-36).dp)
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                Color.White.copy(alpha = 0.28f),
+                                Color.White.copy(alpha = 0.26f),
                                 Color.Transparent
                             )
                         )
@@ -233,12 +233,12 @@ private fun GradientEventCard(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .size(120.dp)
-                    .offset(x = (-30).dp, y = 30.dp)
+                    .size(100.dp)
+                    .offset(x = (-26).dp, y = 26.dp)
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                Color.Black.copy(alpha = 0.14f),
+                                Color.Black.copy(alpha = 0.13f),
                                 Color.Transparent
                             )
                         )
@@ -260,67 +260,61 @@ private fun GradientEventCard(
                     )
             )
 
-            Column(
+            // 单行布局：左侧名称+日期，右侧天数+操作按钮同一水平线
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = Space.lg, vertical = Space.md),
-                verticalArrangement = Arrangement.spacedBy(Space.sm)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(Space.xxs)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = event.eventName,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = cardStyle.textColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            letterSpacing = (-0.3).sp
-                        )
-                        Spacer(modifier = Modifier.height(Space.xs))
-                        Text(
-                            text = dateDisplayText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = cardStyle.secondaryText,
-                            letterSpacing = 0.1.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(Space.md))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        DaysBlock(label, days, cardStyle, gradient = true)
-                        if (isDragMode) {
-                            Spacer(modifier = Modifier.width(Space.sm))
-                            DragHandle(
-                                tint = cardStyle.textColor.copy(alpha = 0.75f),
-                                isDragMode = isDragMode,
-                                dragIndex = dragIndex,
-                                onDraggingChange = onDraggingChange,
-                                onDragStart = onDragStart,
-                                onDragEnd = onDragEnd,
-                                onDrag = onDrag
-                            )
-                        }
-                    }
+                    Text(
+                        text = event.eventName,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = cardStyle.textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = (-0.3).sp
+                    )
+                    Text(
+                        text = dateDisplayText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = cardStyle.secondaryText,
+                        letterSpacing = 0.1.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                if (!isDragMode) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+
+                Spacer(modifier = Modifier.width(Space.sm))
+
+                DaysBlock(label, days, cardStyle, gradient = true)
+
+                if (isDragMode) {
+                    Spacer(modifier = Modifier.width(Space.xs))
+                    DragHandle(
+                        tint = cardStyle.textColor.copy(alpha = 0.75f),
+                        isDragMode = isDragMode,
+                        dragIndex = dragIndex,
+                        onDraggingChange = onDraggingChange,
+                        onDragStart = onDragStart,
+                        onDragEnd = onDragEnd,
+                        onDrag = onDrag
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(Space.xs))
+                    // 操作按钮竖排在右侧，避免额外占一行高度
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
                         GlassActionButton(
                             icon = Icons.Default.Edit,
                             description = "编辑",
                             onClick = onEdit
                         )
-                        Spacer(modifier = Modifier.width(Space.sm))
                         GlassActionButton(
                             icon = Icons.Default.Delete,
                             description = "删除",
@@ -357,8 +351,7 @@ private fun GlassEventCard(
     val shape = Shape.medium
     val isDark = LocalDarkTheme.current
     val cardBg = if (isDark) MaterialTheme.colorScheme.surface else Color.White
-    val borderColor = if (isDark) MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-                      else Color(0xFFEDEFF3)
+    val hairline = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE8ECF2)
 
     Card(
         modifier = Modifier
@@ -366,7 +359,9 @@ private fun GlassEventCard(
             .heightIn(min = Sizes.cardMinHeight)
             .scale(if (isCurrentlyDragging) 1.015f else 1f)
             .then(modifier),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrentlyDragging) 8.dp else 1.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isCurrentlyDragging) 10.dp else 2.dp
+        ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
@@ -375,37 +370,49 @@ private fun GlassEventCard(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(cardBg)
-                .border(1.dp, borderColor, shape)
+                .border(1.dp, hairline, shape)
         ) {
-            // 顶部色洗
+            // 1 · 顶部极淡色洗：只用 accent 的 6% 不透明度，克制但有冷暖倾向
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
-                    .background(Brush.verticalGradient(listOf(cardStyle.wash, cardBg)))
-            )
-            // 右侧光晕
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .size(110.dp)
-                    .offset(x = 40.dp)
+                    .height(60.dp)
                     .background(
-                        Brush.radialGradient(
-                            listOf(cardStyle.glow.copy(alpha = 0.35f), Color.Transparent)
+                        Brush.verticalGradient(
+                            listOf(cardStyle.accent.copy(alpha = 0.07f), Color.Transparent)
                         )
                     )
             )
-            // 左侧色条
+
+            // 2 · 右侧柔光：accent 光晕，只在右边缘流转
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(120.dp)
+                    .offset(x = 46.dp)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(cardStyle.accent.copy(alpha = 0.16f), Color.Transparent)
+                        )
+                    )
+            )
+
+            // 3 · 左侧 3dp 渐隐色条：上浓下淡，比整条实色更轻
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
+                    .padding(vertical = Space.md)
                     .width(3.dp)
                     .fillMaxHeight()
-                    .padding(vertical = Space.md)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(cardStyle.accent.copy(alpha = 0.8f))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(cardStyle.accent, cardStyle.accent.copy(alpha = 0.25f))
+                        )
+                    )
             )
+
+            // 4 · 内容：单行对齐，右侧天数 + 竖向操作按钮
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -415,12 +422,12 @@ private fun GlassEventCard(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = Space.md),
-                    verticalArrangement = Arrangement.spacedBy(Space.xs)
+                        .padding(end = Space.sm),
+                    verticalArrangement = Arrangement.spacedBy(Space.xxs)
                 ) {
                     Text(
                         text = event.eventName,
-                        fontSize = 17.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = cardStyle.textColor,
                         maxLines = 1,
@@ -435,32 +442,12 @@ private fun GlassEventCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (!isDragMode) {
-                        Spacer(modifier = Modifier.height(Space.xxs))
-                        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                            SoftActionButton(
-                                icon = Icons.Default.Edit,
-                                description = "编辑",
-                                container = if (isDark) MaterialTheme.colorScheme.surfaceVariant
-                                            else Color(0xFFF3F4F7),
-                                contentColor = if (isDark) MaterialTheme.colorScheme.onSurfaceVariant
-                                               else Color(0xFF5C5C62),
-                                onClick = onEdit
-                            )
-                            SoftActionButton(
-                                icon = Icons.Default.Delete,
-                                description = "删除",
-                                container = if (isDark) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
-                                            else Color(0xFFFDF2F2),
-                                contentColor = MaterialTheme.colorScheme.error,
-                                onClick = onDeleteRequest
-                            )
-                        }
-                    }
                 }
+
                 DaysBlock(label, days, cardStyle, gradient = false)
+
                 if (isDragMode) {
-                    Spacer(modifier = Modifier.width(Space.sm))
+                    Spacer(modifier = Modifier.width(Space.xs))
                     DragHandle(
                         tint = cardStyle.secondaryText,
                         isDragMode = isDragMode,
@@ -470,6 +457,28 @@ private fun GlassEventCard(
                         onDragEnd = onDragEnd,
                         onDrag = onDrag
                     )
+                } else {
+                    Spacer(modifier = Modifier.width(Space.xs))
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
+                        SoftActionButton(
+                            icon = Icons.Default.Edit,
+                            description = "编辑",
+                            container = cardStyle.accent.copy(
+                                alpha = if (isDark) 0.16f else 0.09f
+                            ),
+                            contentColor = cardStyle.accent,
+                            onClick = onEdit
+                        )
+                        SoftActionButton(
+                            icon = Icons.Default.Delete,
+                            description = "删除",
+                            container = MaterialTheme.colorScheme.error.copy(
+                                alpha = if (isDark) 0.16f else 0.08f
+                            ),
+                            contentColor = MaterialTheme.colorScheme.error,
+                            onClick = onDeleteRequest
+                        )
+                    }
                 }
             }
         }
