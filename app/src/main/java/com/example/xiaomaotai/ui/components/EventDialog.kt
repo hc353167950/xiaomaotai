@@ -2,9 +2,13 @@
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import com.example.xiaomaotai.ReminderSchedule
 import androidx.compose.foundation.rememberScrollState
+import com.example.xiaomaotai.EventMode
+import com.example.xiaomaotai.ReminderTone
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -36,11 +40,19 @@ import kotlinx.coroutines.launch
 fun EventDialog(
     event: Event?,
     onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit,
+    onSave: (Event) -> Unit,
     events: EventStore
 ) {
     var eventName by remember { mutableStateOf(event?.eventName ?: "") }
     var errorMessage by remember { mutableStateOf("") }
+
+    // ---- 新增字段状态 ----
+    var note by remember { mutableStateOf(event?.note ?: "") }
+    var mode by remember { mutableStateOf(event?.mode ?: EventMode.COUNTDOWN) }
+    var reminderEnabled by remember { mutableStateOf(event?.reminderEnabled ?: true) }
+    var reminderTone by remember { mutableStateOf(event?.reminderTone ?: ReminderTone.NEUTRAL) }
+    // null = 用全局默认；否则为自定义档位集合
+    var customOffsets by remember { mutableStateOf(event?.reminderDaysBefore) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -293,6 +305,94 @@ fun EventDialog(
                         }
                     )
 
+                    Spacer(modifier = Modifier.height(Space.lg))
+
+                    // ---------- 计数方向 ----------
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "计数方式",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = Space.sm)
+                        )
+                        SegmentedSelector(
+                            options = listOf("倒数（还有几天）", "正数（已经几天）"),
+                            selectedIndex = mode.ordinal,
+                            onSelectionChanged = { index ->
+                                mode = if (index == 1) EventMode.COUNT_UP else EventMode.COUNTDOWN
+                            }
+                        )
+                        if (mode == EventMode.COUNT_UP) {
+                            Text(
+                                text = "从起始日算起，「今天」记为第 1 天",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(top = Space.xs, start = Space.xs)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(Space.lg))
+
+                    // ---------- 备注 ----------
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "备注（可选）",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = Space.sm)
+                        )
+                        OutlinedTextField(
+                            value = note,
+                            onValueChange = { if (it.length <= 200) note = it },
+                            placeholder = {
+                                Text(
+                                    "记下这个日子背后的故事…",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 72.dp),
+                            shape = Shape.small,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                            ),
+                            maxLines = 4,
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = Space.xs),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                text = "${note.length}/200",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(Space.lg))
+
+                    // ---------- 提醒 ----------
+                    ReminderSection(
+                        enabled = reminderEnabled,
+                        onEnabledChange = { reminderEnabled = it },
+                        tone = reminderTone,
+                        onToneChange = { reminderTone = it },
+                        customOffsets = customOffsets,
+                        onOffsetsChange = { customOffsets = it }
+                    )
+
                     if (errorMessage.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(Space.md))
                         Surface(
@@ -379,7 +479,19 @@ fun EventDialog(
                                         return@launch
                                     }
 
-                                    onSave(eventName, finalEventDate)
+                                    // 把编辑后的完整字段交给上层，由它决定是新增还是更新
+                                    onSave(
+                                        (event ?: Event(eventName = eventName, eventDate = finalEventDate))
+                                            .copy(
+                                                eventName = eventName,
+                                                eventDate = finalEventDate,
+                                                note = note.trim(),
+                                                mode = mode,
+                                                reminderEnabled = reminderEnabled,
+                                                reminderTone = reminderTone,
+                                                reminderDaysBefore = customOffsets
+                                            )
+                                    )
                                 }
                             },
                             modifier = Modifier
@@ -443,5 +555,154 @@ fun SegmentedSelector(
                 )
             }
         }
+    }
+}
+
+/**
+ * 提醒设置区：开关 + 语气 + 提前档位。
+ *
+ * 单独抽成组件是因为这块逻辑有三层联动（关闭提醒→语气和档位都失效），
+ * 摊在 EventDialog 里会让主流程读不下去。
+ */
+@Composable
+private fun ReminderSection(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    tone: ReminderTone,
+    onToneChange: (ReminderTone) -> Unit,
+    customOffsets: List<Int>?,
+    onOffsetsChange: (List<Int>?) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onEnabledChange(!enabled) },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "开启提醒",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = if (enabled) "到期会推送通知" else "不推送任何提醒",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+        }
+
+        if (!enabled) return@Column
+
+        Spacer(modifier = Modifier.height(Space.md))
+
+        // 语气：决定通知文案的情感色彩
+        Text(
+            text = "提醒语气",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = Space.sm)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            ReminderTone.entries.forEach { option ->
+                val selected = tone == option
+                Surface(
+                    onClick = { onToneChange(option) },
+                    modifier = Modifier.weight(1f),
+                    shape = Shape.small,
+                    color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = if (selected)
+                        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                    else
+                        BorderStroke(1.dp, Color.Transparent)
+                ) {
+                    Text(
+                        text = option.label,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = Space.sm),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Text(
+            text = when (tone) {
+                ReminderTone.NEUTRAL -> "只陈述事实，不预设场合"
+                ReminderTone.BLESSING -> "适合生日、纪念日等喜事"
+                ReminderTone.MEMORIAL -> "适合忌日、离别等需要安静的日子"
+                ReminderTone.REMIND -> "像日程一样直接提醒"
+            },
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.padding(top = Space.xs, start = Space.xs)
+        )
+
+        Spacer(modifier = Modifier.height(Space.md))
+
+        // 提前档位
+        Text(
+            text = "提前提醒",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = Space.sm)
+        )
+        val effective = customOffsets ?: ReminderSchedule.OFFSETS
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            listOf(7, 1, 0).forEach { days ->
+                val selected = days in effective
+                Surface(
+                    onClick = {
+                        val next = if (selected) effective - days else effective + days
+                        // 与默认值一致时回归 null，保持「跟随全局」语义
+                        onOffsetsChange(
+                            if (next.sortedDescending() == ReminderSchedule.OFFSETS) null
+                            else next.sortedDescending()
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = Shape.small,
+                    color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    border = if (selected)
+                        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                    else
+                        BorderStroke(1.dp, Color.Transparent)
+                ) {
+                    Text(
+                        text = if (days == 0) "当天" else "提前${days}天",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = Space.sm),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Text(
+            text = if (effective.isEmpty()) "未选择任何档位，将不会提醒"
+                   else if (customOffsets == null) "默认：提前 7 天、1 天、当天"
+                   else "已自定义",
+            fontSize = 11.sp,
+            color = if (effective.isEmpty()) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.padding(top = Space.xs, start = Space.xs)
+        )
     }
 }

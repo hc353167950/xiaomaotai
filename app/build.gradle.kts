@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.xiaomaotai"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "3.1.0"
+        versionCode = 9
+        versionName = "3.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // 无 NDK 需求：原 native-secrets（SMTP 凭据）已随账号系统一并移除
     }
@@ -53,6 +53,11 @@ android {
     // JVM 单元测试中 android.util.Log 等桩方法返回默认值，避免 "not mocked" 崩溃
     testOptions {
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            // 限制测试 JVM 堆：本机页面文件紧张时大堆会导致 mmap 失败
+            it.maxHeapSize = "512m"
+            it.jvmArgs("-Xmx512m", "-XX:+UseSerialGC")
+        }
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()

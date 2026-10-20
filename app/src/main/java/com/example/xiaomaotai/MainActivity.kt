@@ -1086,7 +1086,7 @@ fun HomeScreen(
                         showAddDialog = false
                         selectedEvent = null
                     },
-                    onSave = { eventName: String, eventDate: String ->
+                    onSave = { incoming: Event ->
                         // 保存当前编辑的事件引用
                         val currentEvent = selectedEvent
 
@@ -1098,16 +1098,23 @@ fun HomeScreen(
                         scope.launch {
                             isLoading = true
                             try {
-                                val eventToSave = currentEvent?.copy(
-                                    eventName = eventName,
-                                    eventDate = eventDate
-                                    // 编辑时不改变backgroundId，保持原有样式
-                                ) ?: Event(
-                                    eventName = eventName,
-                                    eventDate = eventDate,
-                                    sortOrder = (events.maxOfOrNull { it.sortOrder } ?: 0) + 1,
-                                    backgroundId = CardStyleManager.getSmartRandomStyleId(events.map { it.backgroundId }) // 智能分配不重复的样式
-                                )
+                                // 编辑：沿用原 id / backgroundId / sortOrder，其余字段取对话框结果
+                                // 新增：分配排序位与随机背景样式
+                                val eventToSave = if (currentEvent != null) {
+                                    incoming.copy(
+                                        id = currentEvent.id,
+                                        sortOrder = currentEvent.sortOrder,
+                                        backgroundId = currentEvent.backgroundId
+                                    )
+                                } else {
+                                    incoming.copy(
+                                        id = "",
+                                        sortOrder = (events.maxOfOrNull { it.sortOrder } ?: 0) + 1,
+                                        backgroundId = CardStyleManager.getSmartRandomStyleId(
+                                            events.map { it.backgroundId }
+                                        )
+                                    )
+                                }
 
                                 if (currentEvent != null) {
                                     eventStore.updateEvent(eventToSave)

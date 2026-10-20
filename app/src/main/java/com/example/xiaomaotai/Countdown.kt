@@ -19,7 +19,7 @@ import java.util.Date
  */
 data class Countdown(
     val days: Long,          // 距离下一次纪念日的天数（>= 0）
-    val label: String,       // 统一显示文案："就是今天" / "明天" / "还有N天"
+    val label: String,       // 统一显示文案："就是今天" / "明天" / "还有N天" / "第N天"
     val nextDate: LocalDate, // 下一次纪念日对应的公历日期
     /**
      * 该事件在「本次循环周期」内的全部纪念日日期，按时间升序。
@@ -30,7 +30,11 @@ data class Countdown(
      */
     val occurrences: List<LocalDate> = listOf(nextDate),
     /** 最近这一次是否命中闰月那天（用于文案区分「闰六月十六」） */
-    val isLeapOccurrence: Boolean = false
+    val isLeapOccurrence: Boolean = false,
+    /** 正数模式：从起始日至今已经过去的天数（仅当 mode == COUNT_UP 时有意义） */
+    val elapsedDays: Long? = null,
+    /** 该事件的计数方向 */
+    val mode: EventMode = EventMode.COUNTDOWN
 ) {
 
     /** 供仍以 java.util.Date 工作的调用方（AlarmManager 相关）换取旧类型 */
@@ -43,11 +47,17 @@ data class Countdown(
         const val INVALID_DAYS = Long.MAX_VALUE
         /**
          * 计算事件的倒计时。
+         *
          * @param eventDate 事件日期字符串（yyyy-MM-dd / MM-dd / lunar:... 四种格式）
          * @param today 当前日期，默认取系统时钟，测试时注入固定值
+         * @param mode 计数方向。COUNT_UP 时改用 [elapsedDays] 表示「已经第 N 天」
          * @return 解析失败返回 null，调用方据此显示"日期无效"
          */
-        fun of(eventDate: String, today: LocalDate = LocalDate.now()): Countdown? {
+        fun of(
+            eventDate: String,
+            today: LocalDate = LocalDate.now(),
+            mode: EventMode = EventMode.COUNTDOWN
+        ): Countdown? {
             val parsed = DateParser.parse(eventDate) ?: return null
 
             // 农历走候选模型：闰月年可能有两个日期（普通月 + 闰月）
@@ -76,7 +86,9 @@ data class Countdown(
                     label = labelFor(next.days),
                     nextDate = next.date,
                     occurrences = if (candidates.isEmpty()) listOf(next.date) else candidates,
-                    isLeapOccurrence = next.isLeapHit
+                    isLeapOccurrence = next.isLeapHit,
+                    elapsedDays = elapsedFor(parsed, candidates, today, mode),
+                    mode = mode
                 )
             }
 
@@ -89,8 +101,57 @@ data class Countdown(
                 label = labelFor(days),
                 nextDate = nextDate,
                 occurrences = listOf(nextDate),
-                isLeapOccurrence = false
+                isLeapOccurrence = false,
+                elapsedDays = elapsedFor(parsed, listOf(nextDate), today, mode),
+                mode = mode
             )
+        }
+
+        /**
+         * 正数模式下，从起始日至今的天数。
+         *
+         * 语义：纪念日「第 1 天」= 起始当日，所以 elapsed = 天数差 + 1。
+         * 只有指定了具体年份的事件才算得出起点（`MM-dd` 这种无年份事件谈不上「第几天」），
+         * 这类情况返回 null，UI 回退为普通倒数展示。
+         */
+        private fun elapsedFor(
+            parsed: DateParser.ParsedDate,
+            occurrences: List<LocalDate>,
+            today: LocalDate,
+            mode: EventMode
+        ): Long? {
+            if (mode != EventMode.COUNT_UP) return null
+            val start = startDate(parsed, occurrences) ?: return null
+            val diff = ChronoUnit.DAYS.between(start, today)
+            return diff + 1
+        }
+
+        /** 推算事件的起始日（第一次发生的那天） */
+        private fun startDate(
+            parsed: DateParser.ParsedDate,
+            occurrences: List<LocalDate>
+        ): LocalDate? {
+            return try {
+                if (parsed.type == DateParser.DateType.LUNAR && parsed.year != null) {
+                    LunarCalendarHelper.lunarToLocalDate(
+                        lunarYear = parsed.year,
+                        lunarMonth = parsed.month,
+                        lunarDay = parsed.day,
+                        isLeap = parsed.isLeapMonth
+                    )
+                } else if (parsed.type == DateParser.DateType.SOLAR && parsed.year != null) {
+                    LocalDate.of(
+                        parsed.year,
+                        parsed.month,
+                        safeFebruaryDay(parsed.year, parsed.month, parsed.day)
+                    )
+                } else {
+                    // 无年份事件：无法定义起点
+                    null
+                }
+            } catch (e: Exception) {
+                occurrences.firstOrNull()
+            }
         }
 
         /** 倒计时文案的唯一来源，消除各处 "今天"/"就是今天" 不一致 */

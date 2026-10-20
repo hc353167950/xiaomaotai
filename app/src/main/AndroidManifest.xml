@@ -47,6 +47,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- 通知快速操作：稍后提醒 / 今年不再提醒。由用户点击通知按钮触发 -->
+        <receiver
+            android:name=".ReminderActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.xiaomaotai.ACTION_SNOOZE" />
+                <action android:name="com.example.xiaomaotai.ACTION_MUTE_YEAR" />
+            </intent-filter>
+        </receiver>
+
         <!-- 常驻通知服务：用于在通知栏显示常驻通知 -->
         <service
             android:name=".PersistentNotificationService"

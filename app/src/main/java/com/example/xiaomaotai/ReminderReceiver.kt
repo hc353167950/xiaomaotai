@@ -29,6 +29,9 @@ class ReminderReceiver : BroadcastReceiver() {
         val eventId = intent.getStringExtra("event_id") ?: ""
         val daysRemaining = intent.getIntExtra("days_remaining", 0)
         val reminderHour = intent.getIntExtra("reminder_hour", 0)
+        val eventDate = intent.getStringExtra("event_date") ?: ""
+        // 「稍后提醒」重发的通知：不写台账，避免影响第二天的正常调度
+        val isSnooze = intent.getBooleanExtra("is_snooze", false)
 
         // 纪念日本身：闰月年有两个（普通六月十六 / 闰六月十六），去重必须带上它
         val anniversary = intent.getStringExtra("anniversary")
@@ -52,12 +55,30 @@ class ReminderReceiver : BroadcastReceiver() {
             return
         }
 
+        // 需要完整事件才能拿到语气、备注、提醒开关
+        val storedEvent = if (eventId != "test_notification") {
+            XiaoMaoTaiApp.eventStore(context).persistedEvents().firstOrNull { it.id == eventId }
+        } else {
+            null
+        }
+
         // 事件已被删除则清理残留通知（测试通知除外）
-        if (eventId != "test_notification") {
-            val eventExists = XiaoMaoTaiApp.eventStore(context).persistedEvents().any { it.id == eventId }
-            if (!eventExists) {
-                Log.d(TAG, "事件 $eventId 已被删除，取消通知")
-                ReminderNotifier.cancelAll(context, eventId)
+        if (eventId != "test_notification" && storedEvent == null) {
+            Log.d(TAG, "事件 $eventId 已被删除，取消通知")
+            ReminderNotifier.cancelAll(context, eventId)
+            return
+        }
+
+        // 用户已关闭该事件提醒，或已「今年不再提醒」→ 不发送
+        if (storedEvent != null) {
+            if (!storedEvent.reminderEnabled) {
+                Log.d(TAG, "该事件提醒已关闭，跳过: $eventName")
+                return
+            }
+            if (!isSnooze &&
+                ReminderActionReceiver.isMutedYear(context, eventId, anniversary)
+            ) {
+                Log.d(TAG, "该纪念日已静音，跳过: $eventName @ $anniversary")
                 return
             }
         }
@@ -65,12 +86,12 @@ class ReminderReceiver : BroadcastReceiver() {
         try {
             ReminderNotifier.sendReminder(
                 context,
-                Event(id = eventId, eventName = eventName, eventDate = intent.getStringExtra("event_date") ?: ""),
+                storedEvent ?: Event(id = eventId, eventName = eventName, eventDate = eventDate),
                 daysRemaining,
                 reminderHour,
                 anniversary = anniversary
             )
-            if (eventId != "test_notification") {
+            if (eventId != "test_notification" && !isSnooze) {
                 reminderManager.markReminderSentToday(eventId, daysRemaining, reminderHour, anniversary)
             }
         } catch (e: Exception) {

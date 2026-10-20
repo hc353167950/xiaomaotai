@@ -75,7 +75,9 @@ object ReminderNotifier {
         anniversary: java.time.LocalDate? = null
     ) {
         ensureChannel(context)
-        val (title, baseContent) = ReminderSchedule.notificationContent(event.eventName, daysBefore)
+        val (title, baseContent) = ReminderSchedule.notificationContent(
+            event.eventName, daysBefore, event.reminderTone
+        )
 
         // 闰月那天加标注，区分「六月十六」与「闰六月十六」
         val lunarLabel = leapLabelFor(event.eventDate, anniversary)
@@ -85,14 +87,65 @@ object ReminderNotifier {
             baseContent
         }
 
+        // 有备注时把备注也带进 BigText，用户不用点开就知道是什么事
+        val expanded = if (event.note.isNotBlank()) {
+            "$content\n\n${event.note}"
+        } else {
+            content
+        }
+
         val notification = baseBuilder(context, event.id, event.eventName)
             .setContentTitle(title)
             .setContentText(content)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expanded))
+            .addAction(
+                0,
+                "稍后提醒",
+                actionIntent(
+                    context,
+                    ReminderActionReceiver.ACTION_SNOOZE,
+                    event, daysBefore, hour, anniversary
+                )
+            )
+            .addAction(
+                0,
+                "今年不再提醒",
+                actionIntent(
+                    context,
+                    ReminderActionReceiver.ACTION_MUTE_YEAR,
+                    event, daysBefore, hour, anniversary
+                )
+            )
             .build()
 
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(notificationId(event.id, daysBefore, hour, anniversary), notification)
+    }
+
+    /** 构造通知按钮的 PendingIntent，携带后续动作所需的全部上下文 */
+    private fun actionIntent(
+        context: Context,
+        action: String,
+        event: Event,
+        daysBefore: Int,
+        hour: Int,
+        anniversary: java.time.LocalDate?
+    ): PendingIntent {
+        val intent = Intent(context, ReminderActionReceiver::class.java).apply {
+            this.action = action
+            putExtra("event_id", event.id)
+            putExtra("event_name", event.eventName)
+            putExtra("event_date", event.eventDate)
+            putExtra("days_before", daysBefore)
+            putExtra("hour", hour)
+            putExtra("anniversary", anniversary?.toString() ?: "")
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            "${action}_${event.id}_${anniversary}_${daysBefore}_${hour}".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     /**

@@ -14,6 +14,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.time.LocalDateTime
+import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -49,18 +50,40 @@ class ReminderManager(private val context: Context) {
      */
     fun scheduleReminder(event: Event) {
         try {
+            // 该事件关闭了提醒，或日期解析不出提醒时刻 → 不排任何闹钟
+            if (!event.reminderEnabled) {
+                Log.d(TAG, "提醒已关闭，跳过: ${event.eventName}")
+                return
+            }
+
             val exact = canScheduleAlarms()
             if (!exact) {
                 Log.w(TAG, "没有精确闹钟权限，降级为非精确闹钟: ${event.eventName} (${Build.MANUFACTURER})")
             }
 
-            val occurrences = ReminderSchedule.occurrencesFor(event.eventDate, LocalDateTime.now())
+            // 用事件自己的档位（可为 null 表示沿用全局默认）
+            val offsets = event.effectiveOffsets()
+            if (offsets.isEmpty()) {
+                Log.d(TAG, "该事件未选择任何提醒档位: ${event.eventName}")
+                return
+            }
+
+            val occurrences = ReminderSchedule.occurrencesFor(
+                event.eventDate, LocalDateTime.now(), offsets
+            )
             if (occurrences.isEmpty()) {
                 Log.w(TAG, "无法解析事件日期或无待触发提醒: ${event.eventDate}")
                 return
             }
 
+            val now = LocalDate.now()
             occurrences.forEach { occ ->
+                // 「今年不再提醒」生效期间，跳过该纪念日的所有档位
+                if (ReminderActionReceiver.isMutedYear(context, event.id, occ.anniversary)) {
+                    Log.d(TAG, "该纪念日已静音: ${event.eventName} @ ${occ.anniversary}")
+                    return@forEach
+                }
+
                 // 今天已发过的档位不再重复设置（按「纪念日日期 + 档位 + 时刻」区分，
                 // 闰月年同一档位有两个纪念日，必须分别记录，否则第二套会被误判为已发）
                 if (hasReminderSentToday(event.id, occ.daysBefore, occ.hour, occ.anniversary)) {
@@ -72,6 +95,7 @@ class ReminderManager(private val context: Context) {
                 }
 
                 val triggerAt = occ.triggerAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                if (triggerAt <= System.currentTimeMillis()) return@forEach
                 setAlarm(triggerAt, primaryPendingIntent(event, occ), exact)
                 Log.d(
                     TAG,

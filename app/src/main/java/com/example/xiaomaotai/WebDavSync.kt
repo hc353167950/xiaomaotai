@@ -41,11 +41,31 @@ class WebDavSync(
 
     // ---------- 三个功能 ----------
 
-    /** 备份到云端：本地全量覆盖云端 */
+    /**
+     * 备份到云端：本地全量覆盖云端。
+     *
+     * **空数据保护**：本地 0 条时拒绝执行。
+     *
+     * 这是必须的守卫。典型丢数据场景：用户换手机 → 新装 App → 本地空 →
+     * 手滑点「备份」→ 云端原有备份被空列表覆盖，且不可逆。
+     * 覆盖式备份永远不该允许「用空覆盖有」。
+     *
+     * 另外在覆盖前把云端旧内容快照到 [SNAPSHOT_FILE]，留一条退路。
+     */
     suspend fun backupToCloud(): Result<String> = withClient { client ->
         client.ensureDirectory(DIR).getOrThrow()
 
         val events = eventStore.persistedEvents()
+        if (events.isEmpty()) {
+            throw WebDavException(
+                "本地没有纪念日，已阻止备份。\n" +
+                    "覆盖式备份会用空数据清掉云端原有备份，因此本地为空时不允许执行。"
+            )
+        }
+
+        // 覆盖前先给云端旧内容留一份快照（不存在或已损坏都无妨）
+        snapshotCloud(client)
+
         val payload = SyncPayload(
             version = PAYLOAD_VERSION,
             savedAt = nowIso(),
@@ -53,6 +73,18 @@ class WebDavSync(
         )
         client.putText(FILE, gson.toJson(payload)).getOrThrow()
         Result.success("已备份 ${events.size} 条纪念日到云端")
+    }
+
+    /** 把云端现有 events.json 另存一份，最多保留最近一次（避免无限增长） */
+    private suspend fun snapshotCloud(client: WebDavClient) {
+        try {
+            val current = client.getText(FILE).getOrNull() ?: return
+            if (current.isBlank()) return
+            client.putText(SNAPSHOT_FILE, current)
+            Log.d(TAG, "已保存云端快照")
+        } catch (e: Exception) {
+            Log.w(TAG, "云端快照失败（不影响备份）: ${e.message}")
+        }
     }
 
     /**
@@ -234,6 +266,8 @@ class WebDavSync(
         /** 云端目录与文件（单文件快照，一次 PUT 即完整写入） */
         private const val DIR = "xiaomaotai"
         private const val FILE = "$DIR/events.json"
+        /** 覆盖前的云端快照，用户误操作时唯一的退路 */
+        private const val SNAPSHOT_FILE = "$DIR/events.snapshot.json"
 
         private const val PAYLOAD_VERSION = 1
         private const val MAX_SNAPSHOTS = 3

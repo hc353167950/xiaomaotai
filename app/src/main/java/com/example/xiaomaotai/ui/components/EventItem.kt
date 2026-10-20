@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import com.example.xiaomaotai.EventMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
@@ -59,11 +60,21 @@ fun EventItem(
     val isGlass = uiStyle == UiStyle.GlassCountdown
     val isDark = LocalDarkTheme.current
 
-    val (label, days) = event.cachedDays?.let { cachedDays ->
-        Countdown.labelFor(cachedDays) to cachedDays
-    } ?: run {
-        calculateDaysAfter(event.eventDate)
+    // 正数模式（已经第 N 天）与普通倒数走同一入口，由 Countdown 决定语义
+    val countdown = remember(event.eventDate, event.mode) {
+        Countdown.of(event.eventDate, mode = event.mode)
     }
+
+    // 天数与文案：正数模式优先用 elapsedDays
+    val (label, days) = when {
+        countdown == null -> "日期无效" to 0L
+        countdown.mode == EventMode.COUNT_UP && countdown.elapsedDays != null ->
+            "第${countdown.elapsedDays}天" to countdown.elapsedDays
+        else -> countdown.label to countdown.days
+    }
+
+    // 本次纪念日是否命中闰月（用于角标）
+    val isLeapHit = countdown?.isLeapOccurrence == true
 
     val dateDisplayText = remember(event.eventDate) {
         val parsedDate = DateParser.parse(event.eventDate)
@@ -92,8 +103,10 @@ fun EventItem(
         }
     }
 
-    val cardStyle = remember(event.backgroundId, days, uiStyle, isDark) {
-        if (days == 0L) CardStyleManager.getTodayStyle(uiStyle, isDark)
+    // 只有倒数模式且天数为 0 才算「就是今天」，正数模式没有今天这一说
+    val isToday = event.mode == EventMode.COUNTDOWN && days == 0L
+    val cardStyle = remember(event.backgroundId, days, uiStyle, isDark, event.mode) {
+        if (isToday) CardStyleManager.getTodayStyle(uiStyle, isDark)
         else CardStyleManager.getCardStyle(event.backgroundId, uiStyle, isDark)
     }
 
@@ -104,6 +117,7 @@ fun EventItem(
             label = label,
             days = days,
             dateDisplayText = dateDisplayText,
+            isLeapHit = isLeapHit,
             isDragMode = isDragMode,
             isCurrentlyDragging = isCurrentlyDragging,
             onDraggingChange = { isCurrentlyDragging = it },
@@ -122,6 +136,7 @@ fun EventItem(
             label = label,
             days = days,
             dateDisplayText = dateDisplayText,
+            isLeapHit = isLeapHit,
             isDragMode = isDragMode,
             isCurrentlyDragging = isCurrentlyDragging,
             onDraggingChange = { isCurrentlyDragging = it },
@@ -184,6 +199,8 @@ private fun GradientEventCard(
     label: String,
     days: Long,
     dateDisplayText: String,
+    /** 本次纪念日是否命中闰月，UI 上加「闰」角标并给一句解释 */
+    isLeapHit: Boolean = false,
     isDragMode: Boolean,
     isCurrentlyDragging: Boolean,
     onDraggingChange: (Boolean) -> Unit,
@@ -289,6 +306,11 @@ private fun GradientEventCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    CardMetaRow(
+                        note = event.note,
+                        isLeapHit = isLeapHit,
+                        textColor = cardStyle.secondaryText
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(Space.sm))
@@ -337,6 +359,8 @@ private fun GlassEventCard(
     label: String,
     days: Long,
     dateDisplayText: String,
+    /** 本次纪念日是否命中闰月，UI 上加「闰」角标并给一句解释 */
+    isLeapHit: Boolean = false,
     isDragMode: Boolean,
     isCurrentlyDragging: Boolean,
     onDraggingChange: (Boolean) -> Unit,
@@ -441,6 +465,11 @@ private fun GlassEventCard(
                         color = cardStyle.secondaryText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                    CardMetaRow(
+                        note = event.note,
+                        isLeapHit = isLeapHit,
+                        textColor = cardStyle.secondaryText
                     )
                 }
 
@@ -678,4 +707,51 @@ fun calculateDaysAfter(eventDate: String): Pair<String, Long> {
         return "日期无效" to 0L
     }
     return countdown.label to countdown.days
+}
+
+/**
+ * 卡片底部的一行元信息：闰月角标 + 备注摘要。
+ *
+ * 为什么把「闰」做成角标而不是文字说明：
+ * 农历闰月年的同一个农历日子会过两次，用户看到卡片出现两条一样的
+ * 会以为重复了。一个小角标成本最低、也最能解释清楚。
+ */
+@Composable
+private fun CardMetaRow(
+    note: String,
+    isLeapHit: Boolean,
+    textColor: Color
+) {
+    if (!isLeapHit && note.isBlank()) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Space.xxs),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isLeapHit) {
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = textColor.copy(alpha = 0.18f)
+            ) {
+                Text(
+                    text = "闰",
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+            }
+            Spacer(modifier = Modifier.width(Space.xs))
+        }
+        if (note.isNotBlank()) {
+            Text(
+                text = note.replace("\n", " "),
+                fontSize = 11.sp,
+                color = textColor.copy(alpha = 0.85f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }

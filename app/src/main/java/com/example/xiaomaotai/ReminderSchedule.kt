@@ -15,7 +15,7 @@ import java.time.temporal.ChronoUnit
  */
 object ReminderSchedule {
 
-    /** 提前提醒的天数档位：7天前、1天前、当天 */
+    /** 全局默认提醒档位：7天前、1天前、当天。单条事件可覆盖 */
     val OFFSETS = listOf(7, 1, 0)
 
     /** 各档位的提醒时刻（24小时制）：7天前/1天前只在早8点，当天有三个时段 */
@@ -32,12 +32,52 @@ object ReminderSchedule {
         else -> "还有${daysBefore}天"
     }
 
-    /** 提醒通知的标题与正文（唯一文案来源） */
-    fun notificationContent(eventName: String, daysBefore: Int): Pair<String, String> = when (daysBefore) {
-        7 -> "纪念日提醒" to "还有7天就是「$eventName」了，记得准备哦！"
-        1 -> "纪念日提醒" to "明天就是「$eventName」了，别忘记了！"
-        0 -> "纪念日到了！" to "今天是「$eventName」，祝你开心！"
-        else -> "纪念日提醒" to "${labelFor(daysBefore)}：$eventName"
+    /**
+     * 提醒通知的标题与正文（唯一文案来源）。
+     *
+     * [tone] 决定情感色彩——这是必要的区分：
+     * 「生日」推「祝你开心」很自然，「忌日」推同一句就非常冒犯。
+     * 默认 [ReminderTone.NEUTRAL] 只陈述事实，不预设场合。
+     */
+    fun notificationContent(
+        eventName: String,
+        daysBefore: Int,
+        tone: ReminderTone = ReminderTone.NEUTRAL
+    ): Pair<String, String> {
+        val title = when {
+            daysBefore == 0 && tone == ReminderTone.BLESSING -> "今天是个好日子"
+            daysBefore == 0 -> "纪念日到了"
+            else -> "纪念日提醒"
+        }
+
+        val content = when (tone) {
+            ReminderTone.BLESSING -> when (daysBefore) {
+                7 -> "还有7天就是「$eventName」了，提前准备一下心意吧"
+                1 -> "明天就是「$eventName」了，别忘了"
+                0 -> "今天是「$eventName」，祝一切顺遂"
+                else -> "${labelFor(daysBefore)}：$eventName"
+            }
+            ReminderTone.MEMORIAL -> when (daysBefore) {
+                7 -> "还有7天是「$eventName」"
+                1 -> "明天是「$eventName」"
+                0 -> "今天是「$eventName」，愿一切安好"
+                else -> "${labelFor(daysBefore)}：$eventName"
+            }
+            ReminderTone.REMIND -> when (daysBefore) {
+                7 -> "还有7天：「$eventName」"
+                1 -> "明天：「$eventName」"
+                0 -> "今天：「$eventName」"
+                else -> "${labelFor(daysBefore)}：$eventName"
+            }
+            ReminderTone.NEUTRAL -> when (daysBefore) {
+                7 -> "还有7天就是「$eventName」"
+                1 -> "明天就是「$eventName」"
+                0 -> "今天是「$eventName」"
+                else -> "${labelFor(daysBefore)}：$eventName"
+            }
+        }
+
+        return title to content
     }
 
     /**
@@ -67,13 +107,18 @@ object ReminderSchedule {
      *
      * @return 按时间升序的触发列表；日期无法解析时为空列表
      */
-    fun occurrencesFor(eventDate: String, now: LocalDateTime): List<Occurrence> {
+    fun occurrencesFor(
+        eventDate: String,
+        now: LocalDateTime,
+        offsets: List<Int> = OFFSETS
+    ): List<Occurrence> {
+        if (offsets.isEmpty()) return emptyList()
         val countdown = Countdown.of(eventDate, now.toLocalDate()) ?: return emptyList()
         val anniversaries = countdown.occurrences.ifEmpty { listOf(countdown.nextDate) }
 
         val result = mutableListOf<Occurrence>()
         anniversaries.forEachIndexed { anniversaryIndex, anniversary ->
-            OFFSETS.forEach { daysBefore ->
+            offsets.forEach { daysBefore ->
                 hoursFor(daysBefore).forEachIndexed { hourIndex, hour ->
                     val scheduled = anniversary.minusDays(daysBefore.toLong()).atTime(hour, 0)
                     when {
@@ -106,14 +151,20 @@ object ReminderSchedule {
      * @param windowMinutes 允许的时间窗口（分钟），轮询间隔内的提醒不被漏掉
      * @return 到期的 Occurrence 列表，可能为空
      */
-    fun dueNow(eventDate: String, now: LocalDateTime, windowMinutes: Long = 15): List<Occurrence> {
+    fun dueNow(
+        eventDate: String,
+        now: LocalDateTime,
+        windowMinutes: Long = 15,
+        offsets: List<Int> = OFFSETS
+    ): List<Occurrence> {
+        if (offsets.isEmpty()) return emptyList()
         val countdown = Countdown.of(eventDate, now.toLocalDate()) ?: return emptyList()
         val anniversaries = countdown.occurrences.ifEmpty { listOf(countdown.nextDate) }
 
         val result = mutableListOf<Occurrence>()
         anniversaries.forEach { anniversary ->
             val daysBefore = ChronoUnit.DAYS.between(now.toLocalDate(), anniversary)
-            if (daysBefore !in OFFSETS.map { it.toLong() }) return@forEach
+            if (daysBefore !in offsets.map { it.toLong() }) return@forEach
 
             hoursFor(daysBefore.toInt()).forEach { hour ->
                 val scheduled = now.toLocalDate().atTime(hour, 0)
