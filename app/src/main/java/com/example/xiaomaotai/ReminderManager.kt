@@ -50,7 +50,14 @@ class ReminderManager(private val context: Context) {
      */
     fun scheduleReminder(event: Event) {
         try {
-            // 该事件关闭了提醒，或日期解析不出提醒时刻 → 不排任何闹钟
+            // 正数模式（已经第 N 天）没有「未来某天要提醒」的语义，
+            // 它是一个持续累积的计数，不该产生提醒。这里和 EventDialog 里
+            // 隐藏提醒设置保持一致。
+            if (event.mode == EventMode.COUNT_UP) {
+                Log.d(TAG, "正数模式不排提醒，跳过: ${event.eventName}")
+                return
+            }
+
             if (!event.reminderEnabled) {
                 Log.d(TAG, "提醒已关闭，跳过: ${event.eventName}")
                 return

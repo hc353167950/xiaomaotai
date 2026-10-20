@@ -131,14 +131,24 @@ object ReminderNotifier {
         hour: Int,
         anniversary: java.time.LocalDate?
     ): PendingIntent {
+        // 通知 ID 必须一并带过去：接收端要靠它精确撤掉这条通知。
+        val nid = notificationId(event.id, daysBefore, hour, anniversary)
         val intent = Intent(context, ReminderActionReceiver::class.java).apply {
             this.action = action
+            // 用 data 做唯一性区分：PendingIntent 的相等判定只看
+            // (requestCode, action, data, type, class, categories)，**忽略 extras**。
+            // 两个按钮若仅靠 action 区分，一旦 requestCode 撞车就会互相覆盖，
+            // 表现就是「点了没反应」或「点 A 触发了 B」。加 data 后彻底隔离。
+            data = android.net.Uri.parse(
+                "xiaomaotai://reminder/${action.substringAfterLast('.')}/$nid"
+            )
             putExtra("event_id", event.id)
             putExtra("event_name", event.eventName)
             putExtra("event_date", event.eventDate)
             putExtra("days_before", daysBefore)
             putExtra("hour", hour)
             putExtra("anniversary", anniversary?.toString() ?: "")
+            putExtra("notification_id", nid)
         }
         return PendingIntent.getBroadcast(
             context,
@@ -182,16 +192,42 @@ object ReminderNotifier {
         manager.notify("immediate_test".hashCode(), notification)
     }
 
-    /** 取消事件在所有档位×时刻的通知（事件被删除时清理残留） */
-    fun cancelAll(context: Context, eventId: String) {
+    /**
+     * 撤掉某个事件相关的提醒通知。
+     *
+     * 这里是「点了没反应」的真正原因所在，需要注意两点：
+     *
+     * 1. **必须带上 anniversary**。发通知时用的是
+     *    `notificationId(eventId, daysBefore, hour, anniversary)`，
+     *    早期这里漏了最后一个参数，算出的 ID 与真正通知的 ID 不同，
+     *    `cancel()` 自然取消不掉，通知会一直躺在通知栏里。
+     *
+     * 2. **穷举不了就交给 [cancelByEventPrefix] 兜底**：
+     *    anniversary 无法枚举（闰月年有多个日期），
+     *    调用点若有确切 ID 应优先用 [cancelById]。
+     */
+    fun cancelAll(
+        context: Context,
+        eventId: String,
+        anniversary: java.time.LocalDate? = null
+    ) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ReminderSchedule.OFFSETS.forEach { daysBefore ->
             ReminderSchedule.hoursFor(daysBefore).forEach { hour ->
-                manager.cancel(notificationId(eventId, daysBefore, hour))
+                manager.cancel(notificationId(eventId, daysBefore, hour, anniversary))
+                // 兼容旧版本发出的「不带 anniversary」的 ID
+                manager.cancel(notificationId(eventId, daysBefore, hour, null))
             }
-            // 兼容旧格式 ID（升级前设置的通知）
+            // 更早版本不带 hour 的格式
             manager.cancel("${eventId}_$daysBefore".hashCode())
         }
+    }
+
+    /** 精确撤销一条通知：只有拿到真实 ID 时才能可靠工作 */
+    fun cancelById(context: Context, notificationId: Int) {
+        if (notificationId == 0) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(notificationId)
     }
 
     /** 统一的通知外观与点击行为 */

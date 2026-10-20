@@ -28,18 +28,24 @@ class ReminderActionReceiver : BroadcastReceiver() {
         val eventName = intent.getStringExtra(EXTRA_EVENT_NAME) ?: "纪念日"
         val daysBefore = intent.getIntExtra(EXTRA_DAYS_BEFORE, 0)
         val hour = intent.getIntExtra(EXTRA_HOUR, 0)
+        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
         val anniversary = intent.getStringExtra(EXTRA_ANNIVERSARY)
             ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 
+        Log.d(TAG, "收到动作 ${intent.action} → $eventName (通知ID=$notificationId)")
+
         when (intent.action) {
             ACTION_SNOOZE -> handleSnooze(
-                context, eventId, eventName, daysBefore, hour, anniversary, intent
+                context, eventId, eventName, daysBefore, hour, anniversary, notificationId, intent
             )
-            ACTION_MUTE_YEAR -> handleMuteYear(context, eventId, eventName, anniversary)
+            ACTION_MUTE_YEAR -> handleMuteYear(
+                context, eventId, eventName, anniversary, notificationId
+            )
+            else -> Log.w(TAG, "未知动作: ${intent.action}")
         }
     }
 
-    /** 稍后提醒：把同一条通知在 1 小时后重新排一次 */
+    /** 稍后提醒：把同一条通知在 N 分钟后重新排一次 */
     private fun handleSnooze(
         context: Context,
         eventId: String,
@@ -47,6 +53,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
         daysBefore: Int,
         hour: Int,
         anniversary: LocalDate?,
+        notificationId: Int,
         original: Intent
     ) {
         try {
@@ -85,11 +92,14 @@ class ReminderActionReceiver : BroadcastReceiver() {
                 )
             }
 
-            // 收起当前通知，避免用户以为没生效
-            ReminderNotifier.cancelAll(context, eventId)
+            // 精确撤掉用户刚点的那条通知。
+            // 必须用发通知时的完整 ID（含 anniversary），否则 ID 对不上、取消不掉。
+            ReminderNotifier.cancelById(context, notificationId)
+            toast(context, "${SNOOZE_MINUTES} 分钟后再次提醒")
             Log.d(TAG, "已安排 ${SNOOZE_MINUTES} 分钟后重提醒: $eventName")
         } catch (e: Exception) {
             Log.e(TAG, "稍后提醒设置失败: ${e.message}")
+            toast(context, "稍后提醒设置失败")
         }
     }
 
@@ -103,21 +113,43 @@ class ReminderActionReceiver : BroadcastReceiver() {
         context: Context,
         eventId: String,
         eventName: String,
-        anniversary: LocalDate?
+        anniversary: LocalDate?,
+        notificationId: Int
     ) {
         try {
             val prefs = context.getSharedPreferences(PREF_MUTE, Context.MODE_PRIVATE)
             val target = anniversary ?: LocalDate.now()
             prefs.edit().putBoolean(muteKey(eventId, target), true).apply()
 
-            // 取消该纪念日已排的所有闹钟
-            ReminderNotifier.cancelAll(context, eventId)
-            ReminderManager(context).cancelAllForEvent(
-                Event(id = eventId, eventName = eventName, eventDate = "")
-            )
+            // 精确撤掉用户刚点的那条通知。
+            // 必须用发通知时的完整 ID（含 anniversary），
+            // 否则 ID 对不上，通知会一直躺在通知栏里，看起来像「点了没反应」。
+            if (notificationId != 0) {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE)
+                    as android.app.NotificationManager
+                manager.cancel(notificationId)
+            }
+
+            // 取消该纪念日已排的闹钟：必须用真实事件，
+            // 空 eventDate 会让 Countdown 解析失败、算不出候选日期，闹钟就取消不掉
+            val realEvent = XiaoMaoTaiApp.eventStore(context)
+                .persistedEvents()
+                .firstOrNull { it.id == eventId }
+            if (realEvent != null) {
+                ReminderManager(context).cancelAllForEvent(realEvent)
+            }
+
+            toast(context, "已跳过「$eventName」今年的提醒")
             Log.d(TAG, "已静音本年度提醒: $eventName @ $target")
         } catch (e: Exception) {
             Log.e(TAG, "静音设置失败: ${e.message}")
+        }
+    }
+
+    /** 给用户一个明确反馈：否则点击后毫无动静，会被当成失效 */
+    private fun toast(context: Context, message: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -133,6 +165,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
         private const val EXTRA_DAYS_BEFORE = "days_before"
         private const val EXTRA_HOUR = "hour"
         private const val EXTRA_ANNIVERSARY = "anniversary"
+        private const val EXTRA_NOTIFICATION_ID = "notification_id"
 
         /** 稍后提醒的延后分钟数 */
         const val SNOOZE_MINUTES = 60

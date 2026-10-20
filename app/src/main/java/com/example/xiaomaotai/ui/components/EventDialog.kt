@@ -390,14 +390,25 @@ fun EventDialog(
                     Spacer(modifier = Modifier.height(Space.lg))
 
                     // ---------- 提醒 ----------
-                    ReminderSection(
-                        enabled = reminderEnabled,
-                        onEnabledChange = { reminderEnabled = it },
-                        tone = reminderTone,
-                        onToneChange = { reminderTone = it },
-                        customOffsets = customOffsets,
-                        onOffsetsChange = { customOffsets = it }
-                    )
+                    // 正数模式不参与提醒：它是持续累积的计数，没有「到期」这件事。
+                    // 隐藏整块设置，避免用户配了却不生效。
+                    if (mode == EventMode.COUNTDOWN) {
+                        ReminderSection(
+                            enabled = reminderEnabled,
+                            onEnabledChange = { reminderEnabled = it },
+                            tone = reminderTone,
+                            onToneChange = { reminderTone = it },
+                            customOffsets = customOffsets,
+                            onOffsetsChange = { customOffsets = it }
+                        )
+                    } else {
+                        Text(
+                            text = "正数模式不发送提醒",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(start = Space.xs)
+                        )
+                    }
 
                     if (errorMessage.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(Space.md))

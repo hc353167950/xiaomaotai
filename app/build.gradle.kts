@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.xiaomaotai"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "3.2.2"
+        versionCode = 12
+        versionName = "3.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // 无 NDK 需求：原 native-secrets（SMTP 凭据）已随账号系统一并移除
     }

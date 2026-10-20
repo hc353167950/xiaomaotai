@@ -680,25 +680,46 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // 提取排序逻辑为独立函数，确保在所有地方都应用相同的排序规则
-    // 注意：纪念日都是循环的，cachedDays永远>=0，表示距离下一次的天数
-    fun applySortLogic(eventsList: List<Event>): List<Event> {
+    // ---------- 排序逻辑 ----------
+    // 为什么必须分开排：cachedDays 对倒数是「距下次还有几天」，
+    // 对正数是「已经几天」，语义相反。混在一个列表里按天数比较必然错乱。
+
+    /** 倒数区排序：最近要到的最前（天数升序） */
+    fun applyCountdownSort(eventsList: List<Event>): List<Event> {
         return if (settings.isAutoSortExpiredEventsEnabled()) {
-            // 开启了自动排序：按距离下次纪念日的天数升序排序（天数越少越靠前）
-            // 天数相同时按sortOrder降序（保持用户手动排序）
-            val sorted = eventsList.sortedWith(
-                compareBy<Event> { it.cachedDays ?: 0L }
+            eventsList.sortedWith(
+                compareBy<Event> { it.cachedDays ?: Long.MAX_VALUE }
                     .thenByDescending { it.sortOrder }
             )
-
-            Log.d("HomeScreen", "Applied auto-sort by days: ${eventsList.size} events")
-            sorted
         } else {
-            // 关闭了自动排序：完全按照 sortOrder 降序排列
-            val sorted = eventsList.sortedByDescending { it.sortOrder }
-            Log.d("HomeScreen", "Applied normal sort: ${eventsList.size} events")
-            sorted
+            eventsList.sortedByDescending { it.sortOrder }
         }
+    }
+
+    /**
+     * 正数区排序：累积最久的最前（天数降序）。
+     *
+     * 与倒数区方向相反是刻意的——倒数的价值在「最近要到」，正数的价值在「累积了多久」。
+     */
+    fun applyCountUpSort(eventsList: List<Event>): List<Event> {
+        return if (settings.isAutoSortExpiredEventsEnabled()) {
+            eventsList.sortedWith(
+                compareByDescending<Event> { it.cachedDays ?: 0L }
+                    .thenByDescending { it.sortOrder }
+            )
+        } else {
+            eventsList.sortedByDescending { it.sortOrder }
+        }
+    }
+
+    /**
+     * 混合列表的统一排序：两组各自排好后拼接（倒数在前、正数在后）。
+     * 供排序页等仍使用单一列表的地方复用。
+     */
+    fun applySortLogic(eventsList: List<Event>): List<Event> {
+        val countdown = eventsList.filter { it.mode == EventMode.COUNTDOWN }
+        val countUp = eventsList.filter { it.mode == EventMode.COUNT_UP }
+        return applyCountdownSort(countdown) + applyCountUpSort(countUp)
     }
 
     // 注意：生命周期监听已移到MainApp层级，通过refreshKey传递触发刷新
@@ -747,30 +768,43 @@ fun HomeScreen(
     }
 
     // 手势返回处理：仅在需要拦截时启用，其他情况交给上层(MainApp)的双击退出逻辑
+    // 标签页：0 = 倒数（未来要到），1 = 正数（已经过去）
+    // 两种模式的 cachedDays 语义相反，必须分开成两个列表分别排序，
+    // 混在一个列表里按天数比较必然错乱。
+    var currentTab by rememberSaveable { mutableStateOf(0) }
+
+    // 按模式分组
+    val countdownEvents = remember(events) {
+        events.filter { it.mode == EventMode.COUNTDOWN }
+    }
+    val countUpEvents = remember(events) {
+        events.filter { it.mode == EventMode.COUNT_UP }
+    }
+
+    // 过滤搜索结果（范围限定在当前标签页，备注也参与匹配）
+    val filteredEvents = remember(events, searchQuery, currentTab, countdownEvents, countUpEvents) {
+        val base = if (currentTab == 0) countdownEvents else countUpEvents
+        if (searchQuery.isBlank()) {
+            base
+        } else {
+            base.filter { event ->
+                event.eventName.contains(searchQuery, ignoreCase = true) ||
+                    event.note.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+
+    // 手势返回处理：仅在需要拦截时启用，其他情况交给上层(MainApp)的双击退出逻辑
     BackHandler(enabled = isDragSortMode || showAddDialog || selectedEvent != null) {
         when {
-            isDragSortMode -> {
-                isDragSortMode = false
-            }
-
-            showAddDialog || selectedEvent != null -> {
+            showAddDialog -> {
                 showAddDialog = false
                 selectedEvent = null
             }
+            selectedEvent != null -> selectedEvent = null
+            isDragSortMode -> isDragSortMode = false
         }
     }
-
-    // 过滤搜索结果
-    val filteredEvents = remember(events, searchQuery) {
-        if (searchQuery.isBlank()) {
-            events
-        } else {
-            events.filter { event ->
-                event.eventName.contains(searchQuery, ignoreCase = true)
-            }
-        }
-    }
-
     // 数据加载 - 智能排序：根据设置决定是否将过期事件移到末尾（仅在内存中排序，不修改数据库）
     // 监听 internalRefreshKey 确保从后台恢复时也能刷新数据
     LaunchedEffect(eventStore, refreshKey, internalRefreshKey) {
@@ -823,6 +857,14 @@ fun HomeScreen(
                     },
                     onDeleteAllClick = { showDeleteAllConfirm = true },
                     onAddClick = { showAddDialog = true }
+                )
+
+                // 标签页：倒数 / 正数。两种模式天数语义相反，分开成两个列表各自排序
+                HomeTabSwitcher(
+                    currentTab = currentTab,
+                    countdownCount = countdownEvents.size,
+                    countUpCount = countUpEvents.size,
+                    onTabChange = { currentTab = it }
                 )
             }
 
@@ -1544,6 +1586,71 @@ private fun EmptyState(
                     )
                     Spacer(modifier = Modifier.width(Space.sm))
                     Text("添加第一个纪念日", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 首页标签切换：倒数 / 正数。
+ *
+ * 为什么必须分标签而不是混排：
+ * 「还有 3 天」和「已经 3 天」是相反的时间方向，
+ * 放在一个按天数排序的列表里，用户无法判断哪个更「近」。
+ * 分开后，每个标签内部的天数方向是自洽的。
+ */
+@Composable
+private fun HomeTabSwitcher(
+    currentTab: Int,
+    countdownCount: Int,
+    countUpCount: Int,
+    onTabChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Space.sm)
+            .clip(Shape.small)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        listOf(
+            "倒数" to countdownCount,
+            "已过去" to countUpCount
+        ).forEachIndexed { index, (label, count) ->
+            val selected = currentTab == index
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 36.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.surface else Color.Transparent
+                    )
+                    .clickable { onTabChange(index) },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = label,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (selected) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (count > 0) {
+                        Spacer(modifier = Modifier.width(Space.xs))
+                        Text(
+                            text = count.toString(),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                        .copy(alpha = 0.7f)
+                        )
+                    }
                 }
             }
         }
