@@ -183,7 +183,12 @@ class ReminderManager(private val context: Context) {
                     listOf(0, 8, 12).forEach { hour ->
                         cancelAlarm("${event.id}_${anniversary}_${daysBefore}_${hour}")
                         listOf(1, 2, 3).forEach { delay ->
-                            cancelAlarm("${event.id}_${anniversary}_${daysBefore}_${hour}_backup_${delay}")
+                            // 备份闹钟注册时用的是 BACKUP_REMINDER action，
+                            // 取消模板必须一致，否则永远取消不掉
+                            cancelAlarm(
+                                "${event.id}_${anniversary}_${daysBefore}_${hour}_backup_${delay}",
+                                action = "com.example.xiaomaotai.BACKUP_REMINDER"
+                            )
                         }
                     }
                 }
@@ -238,7 +243,31 @@ class ReminderManager(private val context: Context) {
             data = android.net.Uri.parse("package:${context.packageName}")
         }
 
-    // ---------- 已发送台账 ----------
+
+    /**
+     * 发送前的统一闸门：所有发送路径（闹钟、备份闹钟、轮询兜底、稍后提醒重发）
+     * 都必须先过这里。
+     *
+     * 此前「今年不再提醒」只挡住了闹钟路径与接收器路径，常驻通知的 15 分钟轮询
+     * 完全没检查——用户点了静音，后面的时间点还是被轮询弹出来。
+     * 闸门收拢后，任何路径绕过静音都会在编译期暴露（必须显式调用这里）。
+     *
+     * 语义（对应「稍后提醒 / 今年不再提醒」的产品规则）：
+     * - 稍后提醒只消耗那一次提醒，不写台账，也不影响后面的固定时间点；
+     * - 「今年不再提醒」对**所有**后续时间点生效，包括已排定的稍后提醒重发；
+     * - 正数模式（走过）没有「到期」语义，永不发送。
+     */
+    fun shouldDeliver(
+        event: Event?,
+        anniversary: java.time.LocalDate
+    ): Boolean {
+        if (event == null) return false                 // 事件已删除
+        if (event.mode == EventMode.COUNT_UP) return false
+        if (!event.reminderEnabled) return false        // 用户关闭了该事件的提醒
+        // 「今年不再提醒」：对稍后提醒的重发同样生效（静音是更强的用户意图）
+        if (ReminderActionReceiver.isMutedYear(context, event.id, anniversary)) return false
+        return true
+    }
 
     /**
      * 今天是否已为该事件、该纪念日、该档位发送过提醒。
@@ -360,9 +389,19 @@ class ReminderManager(private val context: Context) {
         }
     }
 
-    private fun cancelAlarm(requestKey: String) {
+    /**
+     * 取消闹钟。
+     *
+     * [action] 必须与当初注册时一致：PendingIntent 的相等判定包含 action，
+     * 用 REMINDER 的模板去取消 BACKUP_REMINDER 的闹钟永远取消不掉
+     * （这正是「今年不再提醒」后备份闹钟仍会弹的历史 bug）。
+     */
+    private fun cancelAlarm(
+        requestKey: String,
+        action: String = "com.example.xiaomaotai.REMINDER"
+    ) {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
-            action = "com.example.xiaomaotai.REMINDER"
+            this.action = action
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -371,6 +410,31 @@ class ReminderManager(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmManager.cancel(pendingIntent)
+    }
+
+    /**
+     * 只取消某个纪念日相关的全部档位闹钟（含备份）。
+     *
+     * 「今年不再提醒」用：静音的是这一个纪念日，闰月年的另一个纪念日
+     * （对用户来说是另一个日子）不应被连带清掉。
+     */
+    fun cancelForAnniversary(event: Event, anniversary: java.time.LocalDate) {
+        try {
+            ReminderSchedule.OFFSETS.forEach { daysBefore ->
+                listOf(0, 8, 12).forEach { hour ->
+                    cancelAlarm("${event.id}_${anniversary}_${daysBefore}_${hour}")
+                    listOf(1, 2, 3).forEach { delay ->
+                        cancelAlarm(
+                            "${event.id}_${anniversary}_${daysBefore}_${hour}_backup_${delay}",
+                            action = "com.example.xiaomaotai.BACKUP_REMINDER"
+                        )
+                    }
+                }
+            }
+            Log.d(TAG, "已取消该纪念日全部档位闹钟: ${event.eventName} @ $anniversary")
+        } catch (e: Exception) {
+            Log.e(TAG, "取消纪念日闹钟失败: ${event.eventName}, ${e.message}")
+        }
     }
 
     private fun primaryPendingIntent(event: Event, occ: ReminderSchedule.Occurrence): PendingIntent {

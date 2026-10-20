@@ -341,7 +341,17 @@ class PersistentNotificationService : Service() {
 
             allEvents.forEach { event ->
                 try {
-                    ReminderSchedule.dueNow(event.eventDate, now).forEach { occ ->
+                    // 轮询兜底必须与闹钟路径走同一套闸门（见 shouldDeliver）：
+                    // 此前这里没有任何检查，「今年不再提醒」后后面的时间点
+                    // 仍会被轮询重新弹出来；关闭提醒/走过模式的事件也会被误发。
+                    ReminderSchedule.dueNow(
+                        event.eventDate, now,
+                        offsets = event.effectiveOffsets() // 用事件自己的档位，而非全局默认
+                    ).forEach { occ ->
+                        if (!reminderManager.shouldDeliver(event, occ.anniversary)) {
+                            Log.d(TAG, "轮询跳过（静音/关闭/正数）: ${event.eventName} @ ${occ.anniversary}")
+                            return@forEach
+                        }
                         if (!reminderManager.hasReminderSentToday(
                                 event.id, occ.daysBefore, occ.hour, occ.anniversary
                             )

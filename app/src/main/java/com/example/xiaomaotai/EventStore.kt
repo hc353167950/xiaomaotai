@@ -83,9 +83,20 @@ class EventStore(
         updatePersistentNotificationIfEnabled()
     }
 
-    /** 批量更新排序（拖拽排序页保存） */
+    /**
+     * 批量更新排序（排序页保存）。
+     *
+     * **按 id 合并而不是整表替换**：首页现在是「将至 / 走过」双标签，
+     * 排序页每次只拿到当前标签的事件。若在这里直接 commitList(events)，
+     * 另一个标签的事件会被整体清掉——数据丢失。
+     * 只覆盖传入的事件（取新的 sortOrder），其余事件原样保留。
+     */
     suspend fun updateEventOrder(events: List<Event>) {
-        commitList(events)
+        val byId = events.associateBy { it.id }
+        commitList(_events.value.map { existing ->
+            byId[existing.id] ?: existing
+        })
+        updatePersistentNotificationIfEnabled()
     }
 
     /**

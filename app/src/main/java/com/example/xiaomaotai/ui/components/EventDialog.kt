@@ -323,7 +323,7 @@ fun EventDialog(
                             modifier = Modifier.padding(bottom = Space.sm)
                         )
                         SegmentedSelector(
-                            options = listOf("倒数（还有几天）", "正数（已经几天）"),
+                            options = listOf("将至（还有几天）", "走过（已经几天）"),
                             selectedIndex = mode.ordinal,
                             onSelectionChanged = { index ->
                                 mode = if (index == 1) EventMode.COUNT_UP else EventMode.COUNTDOWN

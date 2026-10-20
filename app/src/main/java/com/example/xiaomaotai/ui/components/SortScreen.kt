@@ -50,7 +50,8 @@ import kotlin.math.roundToInt
 fun SortScreen(
     eventStore: EventStore,
     settings: AppSettings,
-    initialEvents: List<Event>, // 接收首页传过来的事件列表
+    initialEvents: List<Event>, // 接收首页传过来的事件列表（仅当前标签的那一组）
+    title: String = "排序",      // 标题带标签名，明确正在调整哪一组
     onDone: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -261,7 +262,7 @@ fun SortScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "排序",
+                    text = title,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface

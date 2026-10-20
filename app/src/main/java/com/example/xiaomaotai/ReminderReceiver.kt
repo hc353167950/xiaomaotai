@@ -69,18 +69,15 @@ class ReminderReceiver : BroadcastReceiver() {
             return
         }
 
-        // 用户已关闭该事件提醒，或已「今年不再提醒」→ 不发送
-        if (storedEvent != null) {
-            if (!storedEvent.reminderEnabled) {
-                Log.d(TAG, "该事件提醒已关闭，跳过: $eventName")
-                return
-            }
-            if (!isSnooze &&
-                ReminderActionReceiver.isMutedYear(context, eventId, anniversary)
-            ) {
-                Log.d(TAG, "该纪念日已静音，跳过: $eventName @ $anniversary")
-                return
-            }
+        // 统一闸门：事件存在、提醒开启、非正数模式、未被「今年不再提醒」静音。
+        // 稍后提醒的重发同样要走这里——用户点了静音后，已排定的那一次重发
+        // 必须一并拦下，否则「今年后面都不再提醒」就破了。
+        // （稍后提醒仍然不写台账：它消耗的只是那一次，不影响后面的固定时间点。）
+        if (eventId != "test_notification" &&
+            !reminderManager.shouldDeliver(storedEvent, anniversary)
+        ) {
+            Log.d(TAG, "闸门拦截（已删除/关闭提醒/正数模式/今年已静音）: $eventName @ $anniversary")
+            return
         }
 
         try {

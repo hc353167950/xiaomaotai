@@ -329,6 +329,7 @@ fun MainApp(
     var settingsRoute by remember { mutableStateOf<SettingsRoute?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
+    var sortScreenTitle by remember { mutableStateOf("排序") } // 排序页标题：带标签名（将至/走过）
 
     // 双击返回退出相关状态
     var backPressedTime by remember { mutableStateOf(0L) }
@@ -437,8 +438,9 @@ fun MainApp(
                 eventStore = events,
                 settings = settings,
                 modifier = Modifier.padding(paddingValues),
-                onNavigateToSort = { events ->
-                    sortScreenEvents = events // 保存事件列表
+                onNavigateToSort = { events, tabLabel ->
+                    sortScreenEvents = events // 保存事件列表（当前标签的那一组）
+                    sortScreenTitle = tabLabel
                     currentScreen = "sort"
                 },
                 refreshKey = refreshKey
@@ -479,7 +481,8 @@ fun MainApp(
                 SortScreen(
                     eventStore = events,
                     settings = settings,
-                    initialEvents = sortScreenEvents, // 传递首页的事件列表
+                    initialEvents = sortScreenEvents, // 传递首页当前标签的事件列表
+                    title = sortScreenTitle,
                     onDone = {
                         refreshKey += 1
                         currentScreen = "home"
@@ -658,7 +661,7 @@ fun HomeScreen(
     eventStore: EventStore,
     settings: AppSettings,
     modifier: Modifier = Modifier,
-    onNavigateToSort: (List<Event>) -> Unit, // 修改为传递事件列表
+    onNavigateToSort: (List<Event>, String) -> Unit, // 传递当前标签的事件列表 + 标签名
     refreshKey: Int
 ) {
     var events by remember { mutableStateOf<List<Event>>(emptyList()) }
@@ -675,6 +678,8 @@ fun HomeScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<Event?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    // 搜索条展开状态（方案 A）：默认收起，点搜索图标展开，再点或清空后收起
+    var searchActive by remember { mutableStateOf(false) }
     var showDeleteAllConfirm by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
@@ -845,15 +850,24 @@ fun HomeScreen(
             ) {
                 HomeListHeader(
                     searchQuery = searchQuery,
-                    onSearchQueryChange = { searchQuery = it },
+                    onSearchQueryChange = {
+                        searchQuery = it
+                    },
+                    searchActive = searchActive,
+                    onSearchToggle = {
+                        searchActive = !searchActive
+                        if (!searchActive) searchQuery = "" // 收起即清空，下次打开是干净状态
+                    },
                     eventsNotEmpty = events.isNotEmpty(),
                     onSortClick = {
-                        val eventsWithDays = events.map { event ->
-                            val days = com.example.xiaomaotai.ui.components
-                                .calculateDaysAfter(event.eventDate).second
-                            event.copy(cachedDays = days)
-                        }
-                        onNavigateToSort(eventsWithDays)
+                        // 只带入当前标签的事件：两个标签的排序各自独立。
+                        // 事件在加载时已带 cachedDays，直接传即可；
+                        // EventStore.updateEventOrder 按 id 合并，不会动到另一标签的数据。
+                        val tabLabel = if (currentTab == 0) "将至排序" else "走过排序"
+                        onNavigateToSort(
+                            if (currentTab == 0) countdownEvents else countUpEvents,
+                            tabLabel
+                        )
                     },
                     onDeleteAllClick = { showDeleteAllConfirm = true },
                     onAddClick = { showAddDialog = true }
@@ -1272,6 +1286,8 @@ fun HomeScreen(
 private fun HomeListHeader(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
+    searchActive: Boolean,
+    onSearchToggle: () -> Unit,
     eventsNotEmpty: Boolean,
     onSortClick: () -> Unit,
     onDeleteAllClick: () -> Unit,
@@ -1311,6 +1327,15 @@ private fun HomeListHeader(
             ) {
                 if (eventsNotEmpty) {
                     HeaderIconButton(
+                        icon = Icons.Default.Search,
+                        contentDescription = "搜索",
+                        container = if (searchActive) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                        tint = if (searchActive) MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                        onClick = onSearchToggle
+                    )
+                    HeaderIconButton(
                         icon = Icons.Default.SwapVert,
                         contentDescription = "拖拽排序",
                         container = MaterialTheme.colorScheme.surfaceVariant,
@@ -1337,71 +1362,82 @@ private fun HomeListHeader(
 
         Spacer(modifier = Modifier.height(Space.md))
 
-        // 搜索框：44dp 高度，内边距与图标比例协调
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(Sizes.searchHeight),
-            shape = Shape.small,
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 1.dp
+        // 搜索条：仅在搜索激活时展开（AnimatedVisibility），
+        // 默认完全收起——首页顶部只剩 标题 + 图标行 + 标签栏，不再被搜索条压矮。
+        androidx.compose.animation.AnimatedVisibility(
+            visible = searchActive,
+            enter = androidx.compose.animation.expandVertically() +
+                androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() +
+                androidx.compose.animation.fadeOut()
         ) {
-            Row(
+            // 搜索条：44dp 高度，内边距与图标比例协调
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = Space.md),
-                verticalAlignment = Alignment.CenterVertically
+                    .fillMaxWidth()
+                    .padding(top = Space.md)
+                    .height(Sizes.searchHeight),
+                shape = Shape.small,
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 1.dp
             ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "搜索",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(Space.iconSm)
-                )
-                Spacer(modifier = Modifier.width(Space.sm))
-                androidx.compose.foundation.text.BasicTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChange,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        letterSpacing = (-0.2).sp
-                    ),
-                    decorationBox = { innerTextField ->
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "搜索纪念日",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    fontSize = 15.sp,
-                                    letterSpacing = (-0.2).sp
-                                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = Space.md),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "搜索",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Space.iconSm)
+                    )
+                    Spacer(modifier = Modifier.width(Space.sm))
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 15.sp,
+                            letterSpacing = (-0.2).sp
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "搜索纪念日",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        fontSize = 15.sp,
+                                        letterSpacing = (-0.2).sp
+                                    )
+                                }
+                                innerTextField()
                             }
-                            innerTextField()
                         }
-                    }
-                )
-                if (searchQuery.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(Space.xs))
-                    // 清除按钮保留 32dp 可点区，视觉图标仍小
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(Shape.tiny)
-                            .clickable { onSearchQueryChange("") },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "清除",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(14.dp)
-                        )
+                    )
+                    if (searchQuery.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(Space.xs))
+                        // 清除按钮保留 32dp 可点区，视觉图标仍小
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(Shape.tiny)
+                                .clickable { onSearchQueryChange("") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "清除",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -1617,8 +1653,8 @@ private fun HomeTabSwitcher(
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         listOf(
-            "倒数" to countdownCount,
-            "已过去" to countUpCount
+            "将至" to countdownCount,
+            "走过" to countUpCount
         ).forEachIndexed { index, (label, count) ->
             val selected = currentTab == index
             Box(

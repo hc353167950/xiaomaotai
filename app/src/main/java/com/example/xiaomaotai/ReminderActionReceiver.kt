@@ -130,13 +130,15 @@ class ReminderActionReceiver : BroadcastReceiver() {
                 manager.cancel(notificationId)
             }
 
-            // 取消该纪念日已排的闹钟：必须用真实事件，
-            // 空 eventDate 会让 Countdown 解析失败、算不出候选日期，闹钟就取消不掉
+            // 只取消「这一个纪念日」已排的闹钟：
+            // 用 cancelForAnniversary 而不是 cancelAllForEvent——
+            // 闰月年有两个纪念日，静音第一个不应连带清掉第二个的闹钟。
+            // （取消后若发现残留，scheduleReminder 会因 isMutedYear 跳过该纪念日。）
             val realEvent = XiaoMaoTaiApp.eventStore(context)
                 .persistedEvents()
                 .firstOrNull { it.id == eventId }
             if (realEvent != null) {
-                ReminderManager(context).cancelAllForEvent(realEvent)
+                ReminderManager(context).cancelForAnniversary(realEvent, target)
             }
 
             toast(context, "已跳过「$eventName」今年的提醒")
