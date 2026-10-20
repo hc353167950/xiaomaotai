@@ -127,8 +127,10 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # gradle.properties 在 .gitignore 中（历史上存放签名密码），CI 检出后缺失，
-      # 而 AndroidX 项目构建必须启用 android.useAndroidX，这里生成一份不含密码的配置
+      # gradle.properties 在 .gitignore 中（历史上存放签名密码），CI 检出后缺失。
+      # 这里生成一份不含密码的配置，并针对 CI 网络环境调优依赖拉取：
+      # - Maven Central 对共享 runner IP 会返回 429，需容忍并重试
+      # - 延长连接/读取超时，避免偶发慢速直接失败
       - name: Generate gradle.properties
         run: |
           set -euo pipefail
@@ -137,9 +139,28 @@ jobs:
           org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8 -XX:+UseParallelGC
           android.useAndroidX=true
           kotlin.code.style=official
+          org.gradle.parallel=true
+          org.gradle.caching=true
+          # CI 依赖拉取容错
+          systemProp.org.gradle.internal.http.connectionTimeout=120000
+          systemProp.org.gradle.internal.http.socketTimeout=120000
+          systemProp.org.gradle.internal.repository.max.retries=8
+          systemProp.org.gradle.internal.repository.initial.backoff=2000
           EOF
             echo "Generated gradle.properties"
+            cat gradle.properties
           fi
+
+      # 缓存 Gradle 依赖，减少重复下载（也显著降低 429 概率）
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Decode release keystore (optional)
         id: keystore
