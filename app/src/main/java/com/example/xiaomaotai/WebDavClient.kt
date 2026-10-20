@@ -48,28 +48,78 @@ class WebDavClient(
         return "Basic " + Base64.getEncoder().encodeToString(raw.toByteArray(Charsets.UTF_8))
     }
 
-    /** 规范化 base URL：去掉尾部斜杠 */
-    private fun base(): String = serverUrl.trimEnd('/')
+    /**
+     * 规范化 base URL：去掉尾部斜杠，并对路径部分逐段做 URL 编码。
+     *
+     * 主机与端口不编码（`https://host:8443` 里的冒号必须保留），
+     * 只编码 `/` 之后的路径段——服务器地址可能是 `.../dav/我的同步/` 这种中文目录。
+     */
+    private fun base(): String {
+        val raw = serverUrl.trim().trimEnd('/')
+        val schemeEnd = raw.indexOf("://")
+        if (schemeEnd < 0) return raw
 
-    /** 拼接完整 URL，并做最小化的路径转义（保留已编码部分） */
-    private fun url(path: String): String = "${base()}/${path.trimStart('/')}"
+        val prefix = raw.substring(0, schemeEnd + 3)
+        val rest = raw.substring(schemeEnd + 3)
+        val parts = rest.split('/')
+
+        val encoded = parts.mapIndexed { index, segment ->
+            if (index == 0 || segment.isEmpty()) segment
+            else java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+        }.joinToString("/")
+
+        return prefix + encoded
+    }
 
     /**
-     * 逐级创建目录（MKCOL）。
+     * 拼接完整 URL。
      *
-     * 这里刻意「尽力而为、绝不阻断」：不同 WebDAV 服务端对 MKCOL 的实现差异极大
-     * （infini-cloud 对 `dir/` 与 `dir` 返回不同状态码，部分服务端对已存在目录返回 409）。
-     * 因此：
-     * - 401 才是真正的致命错误（凭据不对）；
-     * - 其他任何状态码都只记日志，继续下一步 —— 真正的成败由随后的 PUT 决定。
+     * 两个必须小心的点：
      *
-     * 每个目录会依次尝试「带尾斜杠」和「不带尾斜杠」两种形式，任一成功即可。
+     * 1. **尾斜杠必须原样保留**。`dir/` 和 `dir` 在 WebDAV 里是两个不同的资源：
+     *    前者表示目录，后者表示无扩展名的文件。早先用 split→join 展开路径，
+     *    末尾空段被 join 丢弃，导致 MKCOL 请求丢了尾斜杠，服务端一律回 409
+     *    「父目录不存在」——这正是这条路走不通的真正原因。
+     *
+     * 2. **逐段编码但保留分隔符**。服务器地址里可能有空格或中文
+     *    （如坚果云的 `/dav/我的同步/`），不编码会请求失败。
+     */
+    private fun url(path: String): String {
+        val trimmed = path.trimStart('/')
+        val endsWithSlash = trimmed.endsWith("/")
+        val encoded = trimmed
+            .split('/')
+            .filter { it.isNotEmpty() }
+            .joinToString("/") { segment ->
+                java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+            }
+        val suffix = if (endsWithSlash && encoded.isNotEmpty()) "/" else ""
+        return "${base()}/$encoded$suffix"
+    }
+
+    /**
+     * 逐级创建目录（MKCOL），失败不阻断——真正的成败由随后的 PUT 判定。
+     *
+     * 踩过的三个坑（都会表现为「父目录不存在 / 创建目录失败」）：
+     *
+     * 1. **MKCOL 必须显式带 `Content-Length: 0`**。
+     *    OkHttp 对无 body 的自定义方法不保证发送该头，而 nginx-dav 类后端
+     *    （infini-cloud 就在用）缺少它时直接回 409，看起来像是「父目录不存在」。
+     *
+     * 2. **尾斜杠两种形式都要试**。有的服务端只认 `dir/`，有的只认 `dir`。
+     *
+     * 3. **对已存在目录，状态码五花八门**：405 / 301 / 200 / 204 / 409 都见过，
+     *    所以一律不当错误，只记日志。
+     *
+     * 只有 401 是真正的致命错误（凭据不对），其余交给 PUT 决定。
      */
     suspend fun ensureDirectory(path: String): Result<Unit> = runCatching {
         var current = ""
         for (segment in path.trim('/').split('/')) {
             if (segment.isBlank()) continue
             current = if (current.isEmpty()) segment else "$current/$segment"
+
+            if (directoryExists("$current/")) continue
 
             val withSlash = mkcol("$current/")
             if (withSlash == HttpStatusCode.Unauthorized.value) {
@@ -88,13 +138,42 @@ class WebDavClient(
         }
     }
 
-    /** 发一次 MKCOL，返回状态码 */
+    /**
+     * 发一次 MKCOL，返回状态码。
+     *
+     * 关键点：显式声明空 body（Content-Length: 0）。
+     * WebDAV 规范要求 MKCOL 请求体为空，很多服务端靠这个头判断请求合法。
+     */
     private suspend fun mkcol(path: String): Int {
         val response = client.request(url(path)) {
             method = HttpMethod("MKCOL")
             header(HttpHeaders.Authorization, authHeader())
+            header(HttpHeaders.ContentLength, "0")
+            setBody(ByteArray(0))
         }
         return response.status.value
+    }
+
+    /**
+     * 用 PROPFIND（Depth: 0）探测目录是否已存在。
+     *
+     * 比「先 MKCOL 再看状态码」可靠得多：已存在返回 207，不存在返回 404。
+     * 探测失败（服务端不支持 PROPFIND）时按「不存在」处理，不影响后续流程。
+     */
+    private suspend fun directoryExists(path: String): Boolean {
+        return try {
+            val response = client.request(url(path)) {
+                method = HttpMethod("PROPFIND")
+                header(HttpHeaders.Authorization, authHeader())
+                header("Depth", "0")
+                header(HttpHeaders.ContentLength, "0")
+                setBody(ByteArray(0))
+            }
+            response.status.value in 200..299
+        } catch (e: Exception) {
+            Log.d(TAG, "PROPFIND 探测失败，按不存在处理: ${e.message}")
+            false
+        }
     }
 
     /**
@@ -105,18 +184,25 @@ class WebDavClient(
      */
     suspend fun putText(path: String, content: String): Result<Unit> = runCatching {
         var response = putOnce(path, content)
+
+        // 409 = 父目录不存在。补建目录后重试一次，仍失败才向用户报错。
         if (response.status.value == 409) {
             val dir = path.substringBeforeLast('/', "")
             if (dir.isNotEmpty()) {
+                Log.d(TAG, "PUT 409，补建目录 $dir 后重试")
                 ensureDirectory(dir)
                 response = putOnce(path, content)
             }
         }
+
         if (response.status != HttpStatusCode.Created &&
             response.status != HttpStatusCode.NoContent &&
             response.status != HttpStatusCode.OK
         ) {
-            throw WebDavException("上传失败 ${response.status.value}")
+            // 带上真实 URL 与状态码，便于定位是「地址填错」还是「服务端拒绝」
+            throw WebDavException(
+                "上传失败 ${response.status.value}（${url(path)}）"
+            )
         }
     }
 
