@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.SpanStyle
@@ -330,6 +331,9 @@ fun MainApp(
     var refreshKey by remember { mutableStateOf(0) }
     var sortScreenEvents by remember { mutableStateOf<List<Event>>(emptyList()) } // 保存传递给排序页的事件列表
     var sortScreenTitle by remember { mutableStateOf("排序") } // 排序页标题：带标签名（将至/走过）
+    // 首页标签页（0=将至 / 1=走过）。放在这里而不是 HomeScreen 内部：
+    // 进入排序页或设置页时 HomeScreen 会离开组合，内部状态会丢失。
+    var homeTab by rememberSaveable { mutableStateOf(0) }
 
     // 双击返回退出相关状态
     var backPressedTime by remember { mutableStateOf(0L) }
@@ -438,6 +442,10 @@ fun MainApp(
                 eventStore = events,
                 settings = settings,
                 modifier = Modifier.padding(paddingValues),
+                // 标签页状态提升到这里：HomeScreen 在进入排序/设置时会离开组合，
+                // 内部 rememberSaveable 会随之丢弃，回来就重置成「将至」。
+                currentTab = homeTab,
+                onTabChange = { homeTab = it },
                 onNavigateToSort = { events, tabLabel ->
                     sortScreenEvents = events // 保存事件列表（当前标签的那一组）
                     sortScreenTitle = tabLabel
@@ -661,6 +669,8 @@ fun HomeScreen(
     eventStore: EventStore,
     settings: AppSettings,
     modifier: Modifier = Modifier,
+    currentTab: Int,                              // 标签页状态由上层持有，返回时保持原标签
+    onTabChange: (Int) -> Unit,
     onNavigateToSort: (List<Event>, String) -> Unit, // 传递当前标签的事件列表 + 标签名
     refreshKey: Int
 ) {
@@ -776,7 +786,7 @@ fun HomeScreen(
     // 标签页：0 = 倒数（未来要到），1 = 正数（已经过去）
     // 两种模式的 cachedDays 语义相反，必须分开成两个列表分别排序，
     // 混在一个列表里按天数比较必然错乱。
-    var currentTab by rememberSaveable { mutableStateOf(0) }
+    // currentTab 由上层（MainApp）持有并通过参数传进来，见函数签名。
 
     // 按模式分组
     val countdownEvents = remember(events) {
@@ -863,22 +873,30 @@ fun HomeScreen(
                         // 只带入当前标签的事件：两个标签的排序各自独立。
                         // 事件在加载时已带 cachedDays，直接传即可；
                         // EventStore.updateEventOrder 按 id 合并，不会动到另一标签的数据。
-                        val tabLabel = if (currentTab == 0) "将至排序" else "走过排序"
-                        onNavigateToSort(
-                            if (currentTab == 0) countdownEvents else countUpEvents,
-                            tabLabel
-                        )
+                        val tabEvents =
+                            if (currentTab == 0) countdownEvents else countUpEvents
+                        val tabName = if (currentTab == 0) "将至" else "走过"
+                        if (tabEvents.isEmpty()) {
+                            // 当前标签没有卡片：进排序页只会看到空列表，直接提示更清楚
+                            Toast.makeText(
+                                context,
+                                "「$tabName」标签下还没有纪念日，无需排序",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            onNavigateToSort(tabEvents, "${tabName}排序")
+                        }
                     },
                     onDeleteAllClick = { showDeleteAllConfirm = true },
                     onAddClick = { showAddDialog = true }
                 )
 
-                // 标签页：倒数 / 正数。两种模式天数语义相反，分开成两个列表各自排序
+                // 标签页：将至 / 走过。两种模式天数语义相反，分开成两个列表各自排序
                 HomeTabSwitcher(
                     currentTab = currentTab,
                     countdownCount = countdownEvents.size,
                     countUpCount = countUpEvents.size,
-                    onTabChange = { currentTab = it }
+                    onTabChange = onTabChange
                 )
             }
 
@@ -1303,23 +1321,15 @@ private fun HomeListHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "纪念日",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    letterSpacing = (-0.9).sp
-                )
-                Spacer(modifier = Modifier.height(Space.xs))
-                Text(
-                    text = "记住每一个重要的日子",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    letterSpacing = 0.2.sp
-                )
-            }
+            // 标题只占自己需要的宽度，图标行不再把标题挤到换行
+            Text(
+                text = "纪念日",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                letterSpacing = (-0.9).sp,
+                maxLines = 1
+            )
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(Space.sm),
@@ -1359,6 +1369,18 @@ private fun HomeListHeader(
                 )
             }
         }
+
+        // 副标题单独一行通栏显示：它此前挤在标题下方、与 4 个图标争宽度，
+        // 360dp 屏上必然被折行。放到图标行之后就不再受图标宽度挤压。
+        Spacer(modifier = Modifier.height(Space.xxs))
+        Text(
+            text = "记住每一个重要的日子",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Normal,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.2.sp,
+            maxLines = 1
+        )
 
         Spacer(modifier = Modifier.height(Space.md))
 
