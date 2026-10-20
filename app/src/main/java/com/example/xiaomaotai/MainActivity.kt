@@ -450,6 +450,7 @@ fun MainApp(
                     SettingsHomeScreen(
                         uiStyleId = uiStyleId,
                         syncConfigured = webDavCredentials.isConfigured(),
+                        modifier = Modifier.padding(paddingValues),
                         onNavigate = { settingsRoute = it }
                     )
                 } else {

@@ -41,6 +41,7 @@ import com.example.xiaomaotai.ui.theme.UiStyle
 fun SettingsHomeScreen(
     uiStyleId: String,
     syncConfigured: Boolean,
+    modifier: Modifier = Modifier,
     onNavigate: (SettingsRoute) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -75,7 +76,7 @@ fun SettingsHomeScreen(
     val styleTitle = UiStyle.fromId(uiStyleId).title
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
@@ -98,10 +99,11 @@ fun SettingsHomeScreen(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Space.screenH)
-                .padding(bottom = Space.lg)
+                .padding(top = Space.xxs, bottom = Space.lg)
         ) {
             // ---------- 界面风格 ----------
             SettingsGroupLabel("界面风格")

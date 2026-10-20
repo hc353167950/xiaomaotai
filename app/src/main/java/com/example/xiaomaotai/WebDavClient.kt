@@ -57,43 +57,60 @@ class WebDavClient(
     /**
      * 逐级创建目录（MKCOL）。
      *
-     * 两个必须注意的协议细节（曾导致 infini-cloud 等服务器「创建目录失败」）：
-     * 1. 目录 URL 必须以 `/` 结尾，否则多数 WebDAV 服务器返回 301/409；
-     * 2. 目录已存在时返回码不统一：405 / 301 / 200 / 204 / 403 都出现过，
-     *    因此这里只把「认证失败」当致命错误，其余按「可能已存在」放过，
-     *    真正的写入结果由随后的 PUT 决定——PUT 成功就是真的成功。
+     * 这里刻意「尽力而为、绝不阻断」：不同 WebDAV 服务端对 MKCOL 的实现差异极大
+     * （infini-cloud 对 `dir/` 与 `dir` 返回不同状态码，部分服务端对已存在目录返回 409）。
+     * 因此：
+     * - 401 才是真正的致命错误（凭据不对）；
+     * - 其他任何状态码都只记日志，继续下一步 —— 真正的成败由随后的 PUT 决定。
+     *
+     * 每个目录会依次尝试「带尾斜杠」和「不带尾斜杠」两种形式，任一成功即可。
      */
     suspend fun ensureDirectory(path: String): Result<Unit> = runCatching {
         var current = ""
         for (segment in path.trim('/').split('/')) {
             if (segment.isBlank()) continue
             current = if (current.isEmpty()) segment else "$current/$segment"
-            val response = client.request(url("$current/")) {
-                method = HttpMethod("MKCOL")
-                header(HttpHeaders.Authorization, authHeader())
+
+            val withSlash = mkcol("$current/")
+            if (withSlash == HttpStatusCode.Unauthorized.value) {
+                throw WebDavException("认证失败，请检查用户名与密码")
             }
-            when (response.status.value) {
-                401, 403 -> {
-                    // 403 在部分服务器上表示「已存在但不可创建」，由 PUT 最终判定
-                    if (response.status == HttpStatusCode.Unauthorized) {
-                        throw WebDavException("认证失败，请检查用户名与密码")
-                    }
-                    Log.d(TAG, "MKCOL 403，目录可能已存在: $current")
-                }
-                200, 201, 204, 301, 405 -> Unit
-                409 -> throw WebDavException("父目录不存在，无法创建: $current")
-                else -> Log.w(TAG, "MKCOL ${response.status.value}，继续尝试写入: $current")
+            if (withSlash in MKCOL_OK) continue
+
+            // 带斜杠不行就再试一次不带斜杠（有些服务端只认其中一种）
+            val withoutSlash = mkcol(current)
+            if (withoutSlash == HttpStatusCode.Unauthorized.value) {
+                throw WebDavException("认证失败，请检查用户名与密码")
+            }
+            if (withoutSlash !in MKCOL_OK) {
+                Log.w(TAG, "MKCOL $current 返回 $withSlash / $withoutSlash，交由 PUT 判定")
             }
         }
     }
 
-    /** 覆盖写入文本文件（一次 PUT = 一个完整快照） */
-    suspend fun putText(path: String, content: String): Result<Unit> = runCatching {
+    /** 发一次 MKCOL，返回状态码 */
+    private suspend fun mkcol(path: String): Int {
         val response = client.request(url(path)) {
-            method = HttpMethod.Put
+            method = HttpMethod("MKCOL")
             header(HttpHeaders.Authorization, authHeader())
-            contentType(ContentType.Application.Json)
-            setBody(content.toByteArray(Charsets.UTF_8))
+        }
+        return response.status.value
+    }
+
+    /**
+     * 覆盖写入文本文件（一次 PUT = 一个完整快照）。
+     *
+     * 如果 PUT 报 409（父目录不存在），说明前面的 MKCOL 没真正建成目录——
+     * 这时补建一次再重试，避免把「目录没建好」暴露成「备份失败」。
+     */
+    suspend fun putText(path: String, content: String): Result<Unit> = runCatching {
+        var response = putOnce(path, content)
+        if (response.status.value == 409) {
+            val dir = path.substringBeforeLast('/', "")
+            if (dir.isNotEmpty()) {
+                ensureDirectory(dir)
+                response = putOnce(path, content)
+            }
         }
         if (response.status != HttpStatusCode.Created &&
             response.status != HttpStatusCode.NoContent &&
@@ -102,6 +119,14 @@ class WebDavClient(
             throw WebDavException("上传失败 ${response.status.value}")
         }
     }
+
+    private suspend fun putOnce(path: String, content: String): HttpResponse =
+        client.request(url(path)) {
+            method = HttpMethod.Put
+            header(HttpHeaders.Authorization, authHeader())
+            contentType(ContentType.Application.Json)
+            setBody(content.toByteArray(Charsets.UTF_8))
+        }
 
     /**
      * 读取文本文件。文件不存在返回 null（区别于网络错误）。
@@ -142,6 +167,9 @@ class WebDavClient(
 
     companion object {
         private const val TAG = "WebDavClient"
+
+        /** MKCOL 视为「目录可用」的状态码（创建成功、已存在、需重定向等） */
+        private val MKCOL_OK = setOf(200, 201, 204, 301, 302, 405)
     }
 }
 
